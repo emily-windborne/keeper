@@ -1,0 +1,27 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --color-bg: #f6f4f0;
+  --color-surface: #ffffff;
+  /* Subtle warm fill for chips, filters, icon wells */
+  --color-surface-alt: #f0eae4;
+  --color-surface-muted: rgba(15, 57, 76, 0.06);
+  --color-border: #e5dad0;
+  --color-text-primary: #0f394c;
+  --color-text-secondary: rgba(15, 57, 76, 0.6);
+  --color-text-muted: rgba(15, 57, 76, 0.6);
+  --color-text-faint: rgba(15, 57, 76, 0.38);
+  /* Primary accent (gold) */
+  --color-accent: #caa510;
+  --color-accent-light: #f5ecc4;
+  /* Teal = primary ink for done / completion */
+  --color-teal: #0f394c;
+  --color-teal-light: #d0e4eb;
+}
+
+body {
+  color: var(--color-text-primary);
+  background: var(--color-bg);
+}

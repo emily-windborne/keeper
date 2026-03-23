@@ -1,0 +1,31 @@
+export type Item = {
+  id: string;
+  title: string;
+  category: "Home" | "Family" | "Personal" | "Work" | "Upkeep" | "Health";
+  type: "recurring" | "one_off" | "goal";
+  frequency_type: "daily" | "weekly" | "biweekly" | "monthly" | "custom" | null;
+  frequency_value: number | null; // e.g. every 1.5 months = 1.5
+  preferred_days: string[] | null; // e.g. ['wednesday']
+  preferred_time_of_day: "morning" | "afternoon" | "evening" | "anytime" | null;
+  estimated_minutes: number;
+  priority: "Critical" | "Important" | "Standard" | "Optional";
+  flexibility: "Fixed" | "Preferred window" | "Flexible anytime";
+  cadence_pressure:
+    | "Must stay on cadence"
+    | "Can slide a little"
+    | "Can defer";
+  minimum_success_threshold: string | null;
+  notes: string | null;
+  is_archived: boolean;
+  last_completed_at: string | null; // ISO date string
+  next_due_date: string | null; // ISO date string
+  created_at: string;
+  updated_at: string;
+};
+
+export type ItemPriority = Item["priority"];
+export type ItemCategory = Item["category"];
+export type ItemType = Item["type"];
+export type ItemFlexibility = Item["flexibility"];
+export type ItemCadencePressure = Item["cadence_pressure"];
+export type FrequencyType = Item["frequency_type"];
