@@ -105,7 +105,7 @@ export function CheckInScreen() {
         .eq("scheduled_date", todayISO)
         .eq("status", "planned")
         .order("scheduled_time_start", { ascending: true, nullsFirst: false }),
-      supabase.from("items").select("*"),
+      supabase.from("items").select("*").eq("user_id", user.id),
     ]);
 
     if (checkRes.error) {
@@ -177,60 +177,78 @@ export function CheckInScreen() {
     nowISO: string,
   ): Promise<{ error: string | null }> {
     const item = itemsById.get(task.item_id);
+    const itemRowId = task.item_id;
 
-    if (outcome === "done") {
-      const { error: taskErr } = await supabase
-        .from("planned_tasks")
-        .update({ status: "done", updated_at: nowISO })
-        .eq("id", task.id);
-      if (taskErr) return { error: taskErr.message };
+    try {
+      if (outcome === "done") {
+        const { error: taskErr } = await supabase
+          .from("planned_tasks")
+          .update({ status: "done", updated_at: nowISO })
+          .eq("id", task.id);
+        if (taskErr) return { error: taskErr.message };
 
-      if (item?.type === "recurring") {
-        const nextDue = computeNextDueDate(item, nowISO);
-        const { error: itemErr } = await supabase
-          .from("items")
+        if (item?.type === "one_off") {
+          const { error: itemErr } = await supabase
+            .from("items")
+            .update({
+              is_archived: true,
+              last_completed_at: nowISO,
+              updated_at: nowISO,
+            })
+            .eq("id", itemRowId);
+          if (itemErr) return { error: itemErr.message };
+          return { error: null };
+        }
+
+        if (item?.type === "recurring") {
+          const nextDue = computeNextDueDate(item, nowISO);
+          const { error: itemErr } = await supabase
+            .from("items")
+            .update({
+              last_completed_at: nowISO,
+              next_due_date: nextDue,
+              updated_at: nowISO,
+            })
+            .eq("id", itemRowId);
+          if (itemErr) return { error: itemErr.message };
+        }
+        return { error: null };
+      }
+
+      if (outcome === "skipped") {
+        const { error } = await supabase
+          .from("planned_tasks")
+          .update({ status: "skipped", updated_at: nowISO })
+          .eq("id", task.id);
+        return { error: error?.message ?? null };
+      }
+
+      if (outcome === "move_tomorrow") {
+        const next = addDaysToISO(todayISO, 1);
+        const { error } = await supabase
+          .from("planned_tasks")
           .update({
-            last_completed_at: nowISO,
-            next_due_date: nextDue,
+            scheduled_date: next,
+            status: "moved",
             updated_at: nowISO,
           })
-          .eq("id", item.id);
-        if (itemErr) return { error: itemErr.message };
+          .eq("id", task.id);
+        return { error: error?.message ?? null };
       }
-      return { error: null };
-    }
 
-    if (outcome === "skipped") {
-      const { error } = await supabase
-        .from("planned_tasks")
-        .update({ status: "skipped", updated_at: nowISO })
-        .eq("id", task.id);
-      return { error: error?.message ?? null };
-    }
-
-    if (outcome === "move_tomorrow") {
-      const next = addDaysToISO(todayISO, 1);
+      const later = addDaysToISO(todayISO, 3);
       const { error } = await supabase
         .from("planned_tasks")
         .update({
-          scheduled_date: next,
+          scheduled_date: later,
           status: "moved",
           updated_at: nowISO,
         })
         .eq("id", task.id);
       return { error: error?.message ?? null };
+    } catch (e) {
+      return { error: e instanceof Error ? e.message : "Could not update task." };
     }
-
-    const later = addDaysToISO(todayISO, 3);
-    const { error } = await supabase
-      .from("planned_tasks")
-      .update({
-        scheduled_date: later,
-        status: "moved",
-        updated_at: nowISO,
-      })
-      .eq("id", task.id);
-    return { error: error?.message ?? null };
   }
 
   async function handleSave() {
@@ -253,48 +271,50 @@ export function CheckInScreen() {
     setError(null);
     const nowISO = new Date().toISOString();
 
-    const { data: checkRow, error: checkErr } = await supabase
-      .from("check_ins")
-      .insert({
-        user_id: user.id,
-        date: todayISO,
-        energy_level: energy,
-        notes: notes.trim() || null,
-      })
-      .select()
-      .single();
+    try {
+      const { data: checkRow, error: checkErr } = await supabase
+        .from("check_ins")
+        .insert({
+          user_id: user.id,
+          date: todayISO,
+          energy_level: energy,
+          notes: notes.trim() || null,
+        })
+        .select()
+        .single();
 
-    if (checkErr || !checkRow) {
-      setError(checkErr?.message ?? "Could not save check-in.");
+      if (checkErr || !checkRow) {
+        setError(checkErr?.message ?? "Could not save check-in.");
+        return;
+      }
+
+      const checkInId = (checkRow as CheckInRow).id;
+
+      for (const task of actioned) {
+        const o = outcomes[task.id]!;
+        const err = await applyOutcome(task, o, nowISO);
+        if (err.error) {
+          setError(err.error);
+          return;
+        }
+
+        const { error: updErr } = await supabase.from("check_in_task_updates").insert({
+          check_in_id: checkInId,
+          planned_task_id: task.id,
+          outcome: o,
+        });
+        if (updErr) {
+          setError(updErr.message);
+          return;
+        }
+      }
+
+      await load();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Could not save check-in.");
+    } finally {
       setSaving(false);
-      return;
     }
-
-    const checkInId = (checkRow as CheckInRow).id;
-
-    for (const task of actioned) {
-      const o = outcomes[task.id]!;
-      const err = await applyOutcome(task, o, nowISO);
-      if (err.error) {
-        setError(err.error);
-        setSaving(false);
-        return;
-      }
-
-      const { error: updErr } = await supabase.from("check_in_task_updates").insert({
-        check_in_id: checkInId,
-        planned_task_id: task.id,
-        outcome: o,
-      });
-      if (updErr) {
-        setError(updErr.message);
-        setSaving(false);
-        return;
-      }
-    }
-
-    setSaving(false);
-    await load();
   }
 
   const dateLine = useMemo(

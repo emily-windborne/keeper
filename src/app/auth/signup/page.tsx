@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { createClient } from "@lib/supabase";
+import { formatAuthErrorMessage } from "@/lib/auth-errors";
 
 export default function SignUpPage() {
   const router = useRouter();
@@ -24,7 +25,7 @@ export default function SignUpPage() {
     });
     setLoading(false);
     if (err) {
-      setError(err.message);
+      setError(formatAuthErrorMessage(err.message));
       return;
     }
     router.push("/");

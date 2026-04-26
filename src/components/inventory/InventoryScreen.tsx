@@ -12,10 +12,11 @@ import {
 } from "@/data/inventory-mock";
 import { itemToInsertRow, mapItemRow } from "@/lib/db/map-rows";
 
-type FilterId = "all" | "recurring" | "one_off" | "goal" | ItemCategory;
+type FilterId = "all" | "archived" | "recurring" | "one_off" | "goal" | ItemCategory;
 
 const FILTERS: { id: FilterId; label: string }[] = [
   { id: "all", label: "All" },
+  { id: "archived", label: "Archived" },
   { id: "recurring", label: "Recurring" },
   { id: "one_off", label: "One-off" },
   { id: "goal", label: "Goals" },
@@ -28,6 +29,12 @@ const FILTERS: { id: FilterId; label: string }[] = [
 ];
 
 function matchesFilter(item: Item, filter: FilterId): boolean {
+  if (filter === "archived") {
+    return item.is_archived;
+  }
+  if (item.is_archived) {
+    return false;
+  }
   if (filter === "all") return true;
   if (filter === "recurring") return item.type === "recurring";
   if (filter === "one_off") return item.type === "one_off";

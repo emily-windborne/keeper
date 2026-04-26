@@ -16,6 +16,26 @@ const CADENCE_ORDER: Record<Item["cadence_pressure"], number> = {
   "Can defer": 2,
 };
 
+/** Minimum gap between the end of one task and the start of the next on the same day. */
+const MIN_GAP_MINUTES = 15;
+
+const SCHEDULE_DAY_START_MIN = 7 * 60;
+/** Tasks must finish by this minute-of-day (23:00). */
+const SCHEDULE_LAST_END_MIN = 23 * 60;
+
+export type DeferredPlanNotice = {
+  itemId: string;
+  title: string;
+  nextDueISO: string;
+  userMessage: string;
+};
+
+export type PlanMyWeekResult = {
+  inputs: NewPlannedTaskInput[];
+  /** Recurring/goal items with preferred_days that had no remaining slot this week; caller sets `next_due_date`. */
+  deferred: DeferredPlanNotice[];
+};
+
 function dueDateOnlyISO(nextDue: string | null): string | null {
   if (!nextDue) return null;
   const d = new Date(nextDue);
@@ -31,10 +51,6 @@ function isRecurringNeverCompleted(item: Item): boolean {
   return item.type === "recurring" && item.last_completed_at == null;
 }
 
-/**
- * Whether the item should be considered due by the end of the planning week.
- * Missing `next_due_date` is treated as due (inventory often has no computed date yet).
- */
 function isDueByEndOfWeek(item: Item, weekEndISO: string): boolean {
   if (isRecurringNeverCompleted(item)) return true;
   const due = dueDateOnlyISO(item.next_due_date);
@@ -42,10 +58,6 @@ function isDueByEndOfWeek(item: Item, weekEndISO: string): boolean {
   return due <= weekEndISO;
 }
 
-/**
- * Anchor date for picking the ideal day within the week. Uses `next_due_date` when set;
- * otherwise the week start (schedule toward the beginning of the week).
- */
 function effectiveDueISOForPlanning(item: Item, weekStartISO: string): string {
   if (isRecurringNeverCompleted(item)) return weekStartISO;
   return dueDateOnlyISO(item.next_due_date) ?? weekStartISO;
@@ -59,6 +71,28 @@ function dayIndexInWeek(weekStartISO: string, dueISO: string): number {
 
 function weekdayNameLower(iso: string): string {
   return new Date(`${iso}T12:00:00`).toLocaleDateString("en-US", { weekday: "long" }).toLowerCase();
+}
+
+function weekdayTitle(iso: string): string {
+  return new Date(`${iso}T12:00:00`).toLocaleDateString("en-US", { weekday: "long" });
+}
+
+function addDaysToISO(iso: string, deltaDays: number): string {
+  const d = new Date(`${iso}T12:00:00`);
+  if (!Number.isFinite(d.getTime())) return iso;
+  d.setDate(d.getDate() + deltaDays);
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+}
+
+function firstPreferredDateOnOrAfter(startISO: string, preferredLower: Set<string>): string | null {
+  for (let i = 0; i <= 370; i += 1) {
+    const iso = addDaysToISO(startISO, i);
+    if (preferredLower.has(weekdayNameLower(iso))) return iso;
+  }
+  return null;
 }
 
 function preferredDayIndices(weekDayISOs: string[], preferred: string[] | null): Set<number> | null {
@@ -77,35 +111,123 @@ function minutesToTime(total: number): string {
   return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`;
 }
 
-function timeWindowForItem(item: Item): { scheduled_time_start: string; scheduled_time_end: string } {
-  const mins = Math.max(1, item.estimated_minutes);
-  let startMin: number;
-  switch (item.preferred_time_of_day) {
-    case "morning":
-      startMin = 9 * 60;
-      break;
-    case "afternoon":
-      startMin = 14 * 60;
-      break;
-    case "evening":
-      startMin = 18 * 60;
-      break;
-    default:
-      startMin = 10 * 60;
-  }
-
-  if (item.flexibility === "Flexible anytime") {
-    startMin = 10 * 60;
-  }
-
-  const endMin = startMin + mins;
-  return {
-    scheduled_time_start: minutesToTime(startMin),
-    scheduled_time_end: minutesToTime(endMin),
-  };
+function parseHHMM(s: string | null | undefined): number | null {
+  if (!s) return null;
+  const m = s.trim().match(/^(\d{1,2}):(\d{2})$/);
+  if (!m) return null;
+  const h = Number(m[1]);
+  const min = Number(m[2]);
+  if (!Number.isFinite(h) || !Number.isFinite(min)) return null;
+  if (h < 0 || h > 23 || min < 0 || min > 59) return null;
+  return h * 60 + min;
 }
 
-function allowedDayIndices(
+function minutesNowCeil(d: Date): number {
+  let m = d.getHours() * 60 + d.getMinutes();
+  if (d.getSeconds() > 0 || d.getMilliseconds() > 0) m += 1;
+  return m;
+}
+
+/**
+ * Valid placement window for this item on this calendar day.
+ * Respects preferred_time_of_day bands; on `todayISO` never starts before “now”.
+ * Returns null if the band is already impossible (e.g. morning item after noon today).
+ */
+function dayPlacementBounds(
+  item: Item,
+  dayISO: string,
+  todayISO: string,
+  now: Date,
+): { minStart: number; maxEnd: number } | null {
+  const dur = Math.max(1, item.estimated_minutes);
+  const notBefore = dayISO === todayISO ? minutesNowCeil(now) : SCHEDULE_DAY_START_MIN;
+
+  let bandMin: number;
+  let bandMaxEnd: number;
+
+  if (item.flexibility === "Flexible anytime") {
+    bandMin = SCHEDULE_DAY_START_MIN;
+    bandMaxEnd = SCHEDULE_LAST_END_MIN;
+  } else {
+    switch (item.preferred_time_of_day) {
+      case "morning":
+        bandMin = 8 * 60;
+        bandMaxEnd = 12 * 60;
+        break;
+      case "afternoon":
+        bandMin = 12 * 60;
+        bandMaxEnd = 18 * 60;
+        break;
+      case "evening":
+        bandMin = 17 * 60;
+        bandMaxEnd = SCHEDULE_LAST_END_MIN;
+        break;
+      case "anytime":
+      default:
+        bandMin = 9 * 60;
+        bandMaxEnd = SCHEDULE_LAST_END_MIN;
+        break;
+    }
+  }
+
+  const minStart = Math.max(bandMin, notBefore, SCHEDULE_DAY_START_MIN);
+  const maxEnd = Math.min(bandMaxEnd, SCHEDULE_LAST_END_MIN);
+  if (minStart + dur > maxEnd) return null;
+  return { minStart, maxEnd };
+}
+
+function sortIntervals(ivs: { start: number; end: number }[]): { start: number; end: number }[] {
+  return [...ivs].sort((a, b) => a.start - b.start || a.end - b.end);
+}
+
+/**
+ * Earliest start minute such that [start, start+dur) fits in [minStart, maxEnd],
+ * with at least MIN_GAP_MINUTES before/after any occupied interval.
+ */
+function findEarliestSlot(
+  intervals: { start: number; end: number }[],
+  dur: number,
+  minStart: number,
+  maxEnd: number,
+): number | null {
+  const latestStart = maxEnd - dur;
+  if (minStart > latestStart) return null;
+  const sorted = sortIntervals(intervals);
+  let candidate = minStart;
+  for (const iv of sorted) {
+    if (candidate > latestStart) return null;
+    if (candidate + dur <= iv.start - MIN_GAP_MINUTES) {
+      return candidate;
+    }
+    candidate = Math.max(iv.end + MIN_GAP_MINUTES, minStart);
+  }
+  if (candidate <= latestStart) return candidate;
+  return null;
+}
+
+function intervalFromPlannedTask(
+  t: PlannedTask,
+  itemById: Map<string, Item>,
+): { start: number; end: number } | null {
+  const start = parseHHMM(t.scheduled_time_start);
+  if (start == null) return null;
+  const parsedEnd = parseHHMM(t.scheduled_time_end);
+  const est = Math.max(1, itemById.get(t.item_id)?.estimated_minutes ?? 60);
+  const end = parsedEnd ?? start + est;
+  return { start, end: Math.max(end, start + 1) };
+}
+
+function estimatedMinutesForPlannedTask(t: PlannedTask, itemById: Map<string, Item>): number {
+  const s = parseHHMM(t.scheduled_time_start);
+  const e = parseHHMM(t.scheduled_time_end);
+  if (s != null && e != null) return Math.max(1, e - s);
+  return Math.max(1, itemById.get(t.item_id)?.estimated_minutes ?? 60);
+}
+
+/**
+ * Day candidates for **one-off** items only — `preferred_days` is a soft hint (not a hard window).
+ */
+function allowedDayIndicesOneOff(
   item: Item,
   weekDayISOs: string[],
   dueISO: string,
@@ -139,40 +261,125 @@ function allowedDayIndices(
   return raw.sort((a, b) => a - b);
 }
 
-function pickDayForLoadBalance(
-  allowed: number[],
-  loads: number[],
-  idealDayIndex: number,
-): number {
-  const sorted = [...allowed].sort((a, b) => {
+function allowedDayIndicesRecurringNoPreferred(
+  item: Item,
+  weekDayISOs: string[],
+  dueISO: string,
+  weekStartISO: string,
+): number[] {
+  const ideal = dayIndexInWeek(weekStartISO, dueISO);
+  const n = weekDayISOs.length;
+
+  let raw: number[];
+  if (item.cadence_pressure === "Must stay on cadence") {
+    if (ideal >= 0 && ideal < n) raw = [ideal];
+    else if (ideal < 0) raw = [0];
+    else raw = [n - 1];
+  } else if (item.cadence_pressure === "Can slide a little") {
+    if (ideal < 0) raw = [0, 1].filter((i) => i < n);
+    else if (ideal >= n) raw = [n - 2, n - 1].filter((i) => i >= 0);
+    else {
+      raw = [ideal - 1, ideal, ideal + 1].filter((i) => i >= 0 && i < n);
+    }
+    if (raw.length === 0) raw = [Math.min(Math.max(ideal, 0), n - 1)];
+  } else {
+    raw = Array.from({ length: n }, (_, i) => i);
+  }
+
+  const pref = preferredDayIndices(weekDayISOs, item.preferred_days);
+  if (pref && item.cadence_pressure !== "Must stay on cadence") {
+    const intersect = raw.filter((i) => pref.has(i));
+    if (intersect.length) return intersect.sort((a, b) => a - b);
+  }
+
+  return raw.sort((a, b) => a - b);
+}
+
+function usesHardPreferredDays(item: Item): boolean {
+  return item.type !== "one_off" && Boolean(item.preferred_days?.length);
+}
+
+/** Sort day indices: lower total scheduled minutes first, then closer to ideal, then earlier in week. */
+function sortDaysForPlacement(indices: number[], loads: number[], ideal: number): number[] {
+  return [...new Set(indices)].sort((a, b) => {
     const la = loads[a] ?? 0;
     const lb = loads[b] ?? 0;
     if (la !== lb) return la - lb;
-    const da = Math.abs(a - idealDayIndex);
-    const db = Math.abs(b - idealDayIndex);
+    const da = Math.abs(a - ideal);
+    const db = Math.abs(b - ideal);
     if (da !== db) return da - db;
     return a - b;
   });
-  return sorted[0]!;
 }
 
 /**
- * Deterministic "Plan my week": eligible inventory items → planned tasks spread across 7 days
- * by estimated_minutes load, respecting cadence + flexibility.
+ * Try to place `item` on one of `dayIndices` (in try order). Mutates `dayIntervals`, `loads`, appends to `outputs`.
+ * Returns true if placed.
+ */
+function tryPlaceOnDays(
+  item: Item,
+  dayIndices: number[],
+  weekDayISOs: string[],
+  todayISO: string,
+  now: Date,
+  dayIntervals: Map<string, { start: number; end: number }[]>,
+  loads: number[],
+  outputs: NewPlannedTaskInput[],
+): boolean {
+  const dur = Math.max(1, item.estimated_minutes);
+  const ordered = [...dayIndices];
+
+  for (const dayIdx of ordered) {
+    const dateISO = weekDayISOs[dayIdx]!;
+    if (dateISO < todayISO) continue;
+
+    const bounds = dayPlacementBounds(item, dateISO, todayISO, now);
+    if (!bounds) continue;
+
+    const ivs = dayIntervals.get(dateISO) ?? [];
+    const startMin = findEarliestSlot(ivs, dur, bounds.minStart, bounds.maxEnd);
+    if (startMin == null) continue;
+
+    const endMin = startMin + dur;
+    ivs.push({ start: startMin, end: endMin });
+    dayIntervals.set(dateISO, sortIntervals(ivs));
+
+    loads[dayIdx] = (loads[dayIdx] ?? 0) + dur;
+    outputs.push({
+      item_id: item.id,
+      title_snapshot: item.title,
+      scheduled_date: dateISO,
+      scheduled_time_start: minutesToTime(startMin),
+      scheduled_time_end: minutesToTime(endMin),
+      status: "planned",
+      priority_override: null,
+      notes: null,
+    });
+    return true;
+  }
+  return false;
+}
+
+/**
+ * Deterministic "Plan my week": eligible inventory items → planned tasks.
  *
- * Eligible items: not archived; due by end of week when `next_due_date` is set; if it is null
- * or invalid, treated as due; recurring items with no `last_completed_at` are always eligible.
+ * Tasks on the same day are sequential with at least 15 minutes between them, never double-booked.
+ * Placement respects preferred_time_of_day bands, current time on today, and load-balances across allowed days.
  */
 export function buildPlanMyWeekInputs(
   items: Item[],
   existingPlanned: PlannedTask[],
   weekDayISOs: string[],
-): NewPlannedTaskInput[] {
-  if (weekDayISOs.length === 0) return [];
+  todayISO: string,
+  now: Date = new Date(),
+): PlanMyWeekResult {
+  const empty: PlanMyWeekResult = { inputs: [], deferred: [] };
+  if (weekDayISOs.length === 0) return empty;
 
   const weekStartISO = weekDayISOs[0]!;
   const weekEndISO = weekDayISOs[weekDayISOs.length - 1]!;
   const weekSet = new Set(weekDayISOs);
+  const itemById = new Map(items.map((i) => [i.id, i]));
 
   const existingItemIds = new Set<string>();
   for (const t of existingPlanned) {
@@ -195,32 +402,104 @@ export function buildPlanMyWeekInputs(
     return a.id.localeCompare(b.id);
   });
 
-  const loads = weekDayISOs.map(() => 0);
+  const loads = weekDayISOs.map((iso) => {
+    let sum = 0;
+    for (const t of existingPlanned) {
+      if (t.scheduled_date !== iso) continue;
+      sum += estimatedMinutesForPlannedTask(t, itemById);
+    }
+    return sum;
+  });
+
+  const dayIntervals = new Map<string, { start: number; end: number }[]>();
+  for (const iso of weekDayISOs) {
+    dayIntervals.set(iso, []);
+  }
+  for (const t of existingPlanned) {
+    if (!weekSet.has(t.scheduled_date)) continue;
+    const iv = intervalFromPlannedTask(t, itemById);
+    if (!iv) continue;
+    const list = dayIntervals.get(t.scheduled_date)!;
+    list.push(iv);
+    dayIntervals.set(t.scheduled_date, sortIntervals(list));
+  }
+
   const outputs: NewPlannedTaskInput[] = [];
+  const deferred: DeferredPlanNotice[] = [];
+  const allDayIndices = weekDayISOs.map((_, i) => i);
 
   for (const item of sorted) {
     const dueISO = effectiveDueISOForPlanning(item, weekStartISO);
     const ideal = Math.min(Math.max(dayIndexInWeek(weekStartISO, dueISO), 0), weekDayISOs.length - 1);
 
-    const allowed = allowedDayIndices(item, weekDayISOs, dueISO, weekStartISO);
+    let allowed: number[];
+
+    if (item.type === "one_off") {
+      allowed = allowedDayIndicesOneOff(item, weekDayISOs, dueISO, weekStartISO);
+    } else if (usesHardPreferredDays(item)) {
+      const prefLower = new Set(item.preferred_days!.map((p) => p.trim().toLowerCase()));
+      const prefInWeek = weekDayISOs
+        .map((iso, i) => ({ iso, i }))
+        .filter(({ iso }) => prefLower.has(weekdayNameLower(iso)))
+        .map(({ i }) => i);
+
+      const validPreferred = prefInWeek
+        .filter((i) => (weekDayISOs[i] ?? "") >= todayISO)
+        .sort((a, b) => a - b);
+
+      if (validPreferred.length === 0) {
+        const afterWeek = addDaysToISO(weekEndISO, 1);
+        const nextDueISO =
+          firstPreferredDateOnOrAfter(afterWeek, prefLower) ?? addDaysToISO(weekEndISO, 7);
+        const dayLabel = weekdayTitle(nextDueISO);
+        deferred.push({
+          itemId: item.id,
+          title: item.title,
+          nextDueISO,
+          userMessage: `${item.title} couldn't fit this week -- scheduled for next ${dayLabel}.`,
+        });
+        continue;
+      }
+
+      allowed = validPreferred;
+    } else {
+      allowed = allowedDayIndicesRecurringNoPreferred(item, weekDayISOs, dueISO, weekStartISO);
+    }
+
     if (allowed.length === 0) continue;
 
-    const dayIdx = pickDayForLoadBalance(allowed, loads, ideal);
-    const dateISO = weekDayISOs[dayIdx]!;
-    loads[dayIdx] = (loads[dayIdx] ?? 0) + item.estimated_minutes;
+    const idealClamped = allowed.reduce((best, i) => {
+      const da = Math.abs(i - ideal);
+      const db = Math.abs(best - ideal);
+      return da < db ? i : best;
+    }, allowed[0]!);
 
-    const tw = timeWindowForItem(item);
-    outputs.push({
-      item_id: item.id,
-      title_snapshot: item.title,
-      scheduled_date: dateISO,
-      scheduled_time_start: tw.scheduled_time_start,
-      scheduled_time_end: tw.scheduled_time_end,
-      status: "planned",
-      priority_override: null,
-      notes: null,
-    });
+    const primaryTry = sortDaysForPlacement(allowed, loads, idealClamped);
+    let placed = tryPlaceOnDays(item, primaryTry, weekDayISOs, todayISO, now, dayIntervals, loads, outputs);
+
+    if (
+      !placed &&
+      item.cadence_pressure === "Can defer" &&
+      !usesHardPreferredDays(item)
+    ) {
+      const fallback = sortDaysForPlacement(allDayIndices, loads, idealClamped);
+      placed = tryPlaceOnDays(item, fallback, weekDayISOs, todayISO, now, dayIntervals, loads, outputs);
+    }
+
+    if (!placed && usesHardPreferredDays(item)) {
+      const prefLower = new Set(item.preferred_days!.map((p) => p.trim().toLowerCase()));
+      const afterWeek = addDaysToISO(weekEndISO, 1);
+      const nextDueISO =
+        firstPreferredDateOnOrAfter(afterWeek, prefLower) ?? addDaysToISO(weekEndISO, 7);
+      const dayLabel = weekdayTitle(nextDueISO);
+      deferred.push({
+        itemId: item.id,
+        title: item.title,
+        nextDueISO,
+        userMessage: `${item.title} had no open slot on preferred days this week -- scheduled for next ${dayLabel}.`,
+      });
+    }
   }
 
-  return outputs;
+  return { inputs: outputs, deferred };
 }

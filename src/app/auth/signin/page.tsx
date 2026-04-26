@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useState } from "react";
 import { createClient } from "@lib/supabase";
+import { formatAuthErrorMessage } from "@/lib/auth-errors";
 
 function SignInForm() {
   const router = useRouter();
@@ -28,7 +29,7 @@ function SignInForm() {
     });
     setLoading(false);
     if (err) {
-      setError(err.message);
+      setError(formatAuthErrorMessage(err.message));
       return;
     }
     router.push(next);

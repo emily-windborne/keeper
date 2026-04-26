@@ -1,4 +1,5 @@
 import type { Item } from "@/data/inventory-mock";
+import { withInitialNextDueDateIfNeeded } from "@/lib/inventory/compute-next-due";
 
 export type PlannedTask = {
   id: string;
@@ -97,24 +98,25 @@ export function itemToInsertRow(
   userId: string,
   item: Omit<Item, "id" | "created_at" | "updated_at">,
 ): Record<string, unknown> {
+  const prepared = withInitialNextDueDateIfNeeded(item, new Date().toISOString());
   return {
     user_id: userId,
-    title: item.title,
-    category: item.category,
-    type: item.type,
-    frequency_type: item.frequency_type,
-    frequency_value: item.frequency_value,
-    preferred_days: item.preferred_days,
-    preferred_time_of_day: item.preferred_time_of_day,
-    estimated_minutes: item.estimated_minutes,
-    priority: item.priority,
-    flexibility: item.flexibility,
-    cadence_pressure: item.cadence_pressure,
-    minimum_success_threshold: item.minimum_success_threshold,
-    notes: item.notes,
-    is_archived: item.is_archived,
-    last_completed_at: item.last_completed_at,
-    next_due_date: item.next_due_date,
+    title: prepared.title,
+    category: prepared.category,
+    type: prepared.type,
+    frequency_type: prepared.frequency_type,
+    frequency_value: prepared.frequency_value,
+    preferred_days: prepared.preferred_days,
+    preferred_time_of_day: prepared.preferred_time_of_day,
+    estimated_minutes: prepared.estimated_minutes,
+    priority: prepared.priority,
+    flexibility: prepared.flexibility,
+    cadence_pressure: prepared.cadence_pressure,
+    minimum_success_threshold: prepared.minimum_success_threshold,
+    notes: prepared.notes,
+    is_archived: prepared.is_archived,
+    last_completed_at: prepared.last_completed_at,
+    next_due_date: prepared.next_due_date,
   };
 }
 

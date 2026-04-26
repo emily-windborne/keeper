@@ -2,6 +2,10 @@ import { createServerClient } from "@supabase/ssr";
 import { type NextRequest, NextResponse } from "next/server";
 import { getSupabasePublicEnv } from "@/lib/supabase-public-env";
 
+/**
+ * Minimal auth gate: Supabase session from cookies only.
+ * Never throw — any failure falls through with NextResponse.next() so refresh never becomes a 500.
+ */
 export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
@@ -13,12 +17,10 @@ export async function middleware(request: NextRequest) {
     return NextResponse.next();
   }
 
-  // API routes: no HTML redirect — handlers validate session and return JSON.
   if (pathname.startsWith("/api/")) {
     return NextResponse.next();
   }
 
-  // Legacy auth URLs → new routes
   if (pathname === "/auth/sign-in") {
     const u = request.nextUrl.clone();
     u.pathname = "/auth/signin";
@@ -30,76 +32,88 @@ export async function middleware(request: NextRequest) {
     return NextResponse.redirect(u);
   }
 
-  const env = getSupabasePublicEnv();
   const isAuthPath = pathname.startsWith("/auth");
 
-  // Missing Supabase env: gate app routes (fail closed).
-  if (!env) {
-    if (!isAuthPath) {
+  try {
+    const env = getSupabasePublicEnv();
+
+    if (!env) {
+      if (!isAuthPath) {
+        const redirectUrl = request.nextUrl.clone();
+        redirectUrl.pathname = "/auth/signin";
+        redirectUrl.searchParams.set("next", pathname === "/" ? "/" : pathname);
+        return NextResponse.redirect(redirectUrl);
+      }
+      return NextResponse.next();
+    }
+
+    let res = NextResponse.next({ request });
+
+    const supabase = createServerClient(env.url, env.key, {
+      cookies: {
+        getAll() {
+          return request.cookies.getAll();
+        },
+        setAll(cookiesToSet) {
+          try {
+            cookiesToSet.forEach(({ name, value }) => request.cookies.set(name, value));
+          } catch {
+            // Request cookies may be immutable in some runtimes.
+          }
+          res = NextResponse.next({ request });
+          cookiesToSet.forEach(({ name, value, options }) => {
+            try {
+              res.cookies.set(name, value, options);
+            } catch {
+              // Ignore single-cookie set failures.
+            }
+          });
+        },
+      },
+    });
+
+    const { data } = await supabase.auth.getUser();
+    const user = data?.user ?? null;
+
+    if (!user && !isAuthPath) {
       const redirectUrl = request.nextUrl.clone();
       redirectUrl.pathname = "/auth/signin";
       redirectUrl.searchParams.set("next", pathname === "/" ? "/" : pathname);
-      return NextResponse.redirect(redirectUrl);
-    }
-    return NextResponse.next();
-  }
-
-  let supabaseResponse = NextResponse.next({
-    request,
-  });
-
-  const supabase = createServerClient(env.url, env.key, {
-    cookies: {
-      getAll() {
-        return request.cookies.getAll();
-      },
-      setAll(cookiesToSet) {
-        cookiesToSet.forEach(({ name, value }) => request.cookies.set(name, value));
-        supabaseResponse = NextResponse.next({
-          request,
+      const redirect = NextResponse.redirect(redirectUrl);
+      try {
+        res.cookies.getAll().forEach((c) => {
+          redirect.cookies.set(c.name, c.value);
         });
-        cookiesToSet.forEach(({ name, value, options }) =>
-          supabaseResponse.cookies.set(name, value, options),
-        );
-      },
-    },
-  });
+      } catch {
+        /* still redirect */
+      }
+      return redirect;
+    }
 
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+    if (user && isAuthPath) {
+      const redirectUrl = request.nextUrl.clone();
+      redirectUrl.pathname = "/";
+      redirectUrl.search = "";
+      const redirect = NextResponse.redirect(redirectUrl);
+      try {
+        res.cookies.getAll().forEach((c) => {
+          redirect.cookies.set(c.name, c.value);
+        });
+      } catch {
+        /* still redirect */
+      }
+      return redirect;
+    }
 
-  if (!user && !isAuthPath) {
-    const redirectUrl = request.nextUrl.clone();
-    redirectUrl.pathname = "/auth/signin";
-    redirectUrl.searchParams.set("next", pathname === "/" ? "/" : pathname);
-    const redirectResponse = NextResponse.redirect(redirectUrl);
-    supabaseResponse.cookies.getAll().forEach((c) => {
-      redirectResponse.cookies.set(c.name, c.value);
-    });
-    return redirectResponse;
+    return res;
+  } catch (err) {
+    console.error("[middleware] non-fatal:", err);
+    return NextResponse.next({ request });
   }
-
-  if (user && isAuthPath) {
-    const redirectUrl = request.nextUrl.clone();
-    redirectUrl.pathname = "/";
-    redirectUrl.search = "";
-    const redirectResponse = NextResponse.redirect(redirectUrl);
-    supabaseResponse.cookies.getAll().forEach((c) => {
-      redirectResponse.cookies.set(c.name, c.value);
-    });
-    return redirectResponse;
-  }
-
-  return supabaseResponse;
 }
 
 export const config = {
   matcher: [
-    /*
-     * Run on all routes except Next internals and static assets.
-     * Include "/" explicitly — some Next.js versions omit the root from the catch-all regex.
-     */
     "/",
     "/((?!_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)",
   ],

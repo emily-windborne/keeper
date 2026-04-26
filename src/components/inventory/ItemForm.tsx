@@ -10,6 +10,7 @@ import type {
   ItemType,
   FrequencyType,
 } from "@/data/inventory-mock";
+import { computeInitialNextDueDate } from "@/lib/inventory/compute-next-due";
 import { formatPreferredDays, parsePreferredDaysInput } from "@/lib/inventory/preferred-days";
 
 const CATEGORY_OPTIONS: ItemCategory[] = [
@@ -131,6 +132,10 @@ export type ItemFormProps = {
   disabled?: boolean;
   /** When false, first field is not auto-focused (e.g. page already scrolled) */
   autoFocusTitle?: boolean;
+  /** When set, a submit button outside the form can use `form={formId}`. */
+  formId?: string;
+  /** Hide the default submit button (pair with an external submit using `formId`). */
+  hideSubmitButton?: boolean;
 };
 
 export function ItemForm({
@@ -139,6 +144,8 @@ export function ItemForm({
   submitLabel,
   disabled = false,
   autoFocusTitle = true,
+  formId,
+  hideSubmitButton = false,
 }: ItemFormProps) {
   const [title, setTitle] = useState("");
   const [category, setCategory] = useState<ItemCategory>("Home");
@@ -219,6 +226,22 @@ export function ItemForm({
     const nowISO = new Date().toISOString();
     const preferred_days = parsePreferredDaysInput(preferredDaysText);
 
+    let next_due_date: string | null = initialItem?.next_due_date ?? null;
+    if (
+      (type === "recurring" || type === "goal") &&
+      next_due_date == null &&
+      frequency.frequency_type != null
+    ) {
+      next_due_date = computeInitialNextDueDate(
+        {
+          type,
+          frequency_type: frequency.frequency_type,
+          frequency_value: frequency.frequency_value,
+        },
+        nowISO,
+      );
+    }
+
     const item: Item = initialItem
       ? {
           ...initialItem,
@@ -236,6 +259,7 @@ export function ItemForm({
             ? minimumSuccessThreshold.trim()
             : null,
           notes: customNotes,
+          next_due_date,
           updated_at: nowISO,
         }
       : {
@@ -257,7 +281,7 @@ export function ItemForm({
           notes: customNotes,
           is_archived: false,
           last_completed_at: null,
-          next_due_date: null,
+          next_due_date,
           created_at: nowISO,
           updated_at: nowISO,
         };
@@ -269,6 +293,7 @@ export function ItemForm({
 
   return (
     <form
+      id={formId}
       className="space-y-5"
       onSubmit={(e) => {
         e.preventDefault();
@@ -454,15 +479,17 @@ export function ItemForm({
         </select>
       </Field>
 
-      <div className="pt-2">
-        <button
-          type="submit"
-          disabled={!canSubmit}
-          className="w-full rounded-[10px] bg-accent px-4 py-3.5 text-base font-semibold text-surface-raised shadow-[0_6px_18px_rgba(202,165,16,0.28)] transition-opacity disabled:cursor-not-allowed disabled:opacity-60"
-        >
-          {submitLabel}
-        </button>
-      </div>
+      {!hideSubmitButton ? (
+        <div className="pt-2">
+          <button
+            type="submit"
+            disabled={!canSubmit}
+            className="w-full rounded-[10px] bg-accent px-4 py-3.5 text-base font-semibold text-surface-raised shadow-[0_6px_18px_rgba(202,165,16,0.28)] transition-opacity disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            {submitLabel}
+          </button>
+        </div>
+      ) : null}
     </form>
   );
 }

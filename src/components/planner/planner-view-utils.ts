@@ -45,3 +45,14 @@ export function timeStartToHour(time: string | null): number | null {
   if (!Number.isFinite(h) || h < 0 || h > 23) return null;
   return h;
 }
+
+/** Minutes since midnight for a `HH:MM` or `H:MM` string (24h). */
+export function parseTimeToMinutesSinceMidnight(hhmm: string): number | null {
+  const m = hhmm.trim().match(/^(\d{1,2}):(\d{2})$/);
+  if (!m) return null;
+  const h = Number(m[1]);
+  const min = Number(m[2]);
+  if (!Number.isFinite(h) || !Number.isFinite(min)) return null;
+  if (h < 0 || h > 23 || min < 0 || min > 59) return null;
+  return h * 60 + min;
+}

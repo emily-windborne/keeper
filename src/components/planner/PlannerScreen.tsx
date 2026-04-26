@@ -2,6 +2,8 @@
 
 import { createClient } from "@lib/supabase";
 import { ChevronLeft, ChevronRight } from "lucide-react";
+import dynamic from "next/dynamic";
+import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 import type { Item } from "@/data/inventory-mock";
 import { CategoryIcon } from "@/components/CategoryIcon";
@@ -9,6 +11,7 @@ import { PlannerCalendarPopover } from "@/components/planner/PlannerCalendarPopo
 import { PlannerDayView } from "@/components/planner/PlannerDayView";
 import { PlannerMonthView } from "@/components/planner/PlannerMonthView";
 import { PlannerTaskList } from "@/components/planner/PlannerTaskList";
+import { PlannerWeekTimelineView } from "@/components/planner/PlannerWeekTimelineView";
 import { startOfMonth, toISODate } from "@/components/planner/planner-view-utils";
 import { computeNextDueDate } from "@/lib/inventory/compute-next-due";
 import { buildPlanMyWeekInputs } from "@/lib/planner/plan-my-week";
@@ -23,6 +26,11 @@ import {
 import type { BrainDumpItemDraft } from "@/lib/api/brain-dump-types";
 import type { RefineApiAction, RefineChange, RefineResponseBody } from "@/lib/api/refine-types";
 import { BrainDumpPreviewSheet } from "@/components/planner/BrainDumpPreviewSheet";
+
+const PlannerTaskEditSheetLazy = dynamic(
+  () => import("@/components/planner/PlannerTaskEditSheet"),
+  { ssr: false, loading: () => null },
+);
 
 type Toast = { id: string; message: string; onUndo?: () => void | Promise<void> } | null;
 
@@ -39,13 +47,6 @@ function addDays(d: Date, days: number): Date {
   return copy;
 }
 
-function formatDayDotClass(count: number): string {
-  if (count <= 0) return "bg-surface-alt";
-  if (count === 1) return "bg-teal-light";
-  if (count <= 3) return "bg-teal";
-  return "bg-accent";
-}
-
 function daysFromTodayStart(todayStart: Date, target: Date): number {
   const a = Date.UTC(todayStart.getFullYear(), todayStart.getMonth(), todayStart.getDate());
   const b = Date.UTC(target.getFullYear(), target.getMonth(), target.getDate());
@@ -53,6 +54,7 @@ function daysFromTodayStart(todayStart: Date, target: Date): number {
 }
 
 export function PlannerScreen() {
+  const router = useRouter();
   const todayStart = useMemo(() => {
     const d = new Date();
     d.setHours(0, 0, 0, 0);
@@ -60,6 +62,8 @@ export function PlannerScreen() {
   }, []);
 
   const [weekOffset, setWeekOffset] = useState(0);
+  /** Week timeline: page 0 = today…today+6, no past days. Arrows step by 7. */
+  const [weekTimelinePage, setWeekTimelinePage] = useState(0);
 
   const weekStart = useMemo(
     () => addDays(todayStart, weekOffset * 7),
@@ -69,6 +73,30 @@ export function PlannerScreen() {
   const weekDays = useMemo(() => Array.from({ length: 7 }, (_, i) => addDays(weekStart, i)), [
     weekStart,
   ]);
+
+  const timelineWeekStart = useMemo(
+    () => addDays(todayStart, weekTimelinePage * 7),
+    [todayStart, weekTimelinePage],
+  );
+
+  const timelineWeekDays = useMemo(
+    () => Array.from({ length: 7 }, (_, i) => addDays(timelineWeekStart, i)),
+    [timelineWeekStart],
+  );
+
+  const timelineWeekISOs = useMemo(
+    () => timelineWeekDays.map((d) => toISODate(d)),
+    [timelineWeekDays],
+  );
+
+  const weekTimelineRangeLabel = useMemo(() => {
+    const a = timelineWeekDays[0];
+    const b = timelineWeekDays[6];
+    if (!a || !b) return "";
+    const left = a.toLocaleDateString(undefined, { month: "short", day: "numeric" });
+    const right = b.toLocaleDateString(undefined, { month: "short", day: "numeric" });
+    return `${left} – ${right}`;
+  }, [timelineWeekDays]);
 
   const todayISO = useMemo(() => toISODate(todayStart), [todayStart]);
   const [selectedDateISO, setSelectedDateISO] = useState(todayISO);
@@ -129,10 +157,27 @@ export function PlannerScreen() {
 
   const [taskActionsOpen, setTaskActionsOpen] = useState(false);
   const [activeTaskId, setActiveTaskId] = useState<string | null>(null);
+  const [plannerTaskEditOpen, setPlannerTaskEditOpen] = useState(false);
+  const [editingPlannedTaskId, setEditingPlannedTaskId] = useState<string | null>(null);
+  const [plannerEditSessionKey, setPlannerEditSessionKey] = useState(0);
 
   const activeTask = useMemo(
     () => plannedTasks.find((t) => t.id === activeTaskId) ?? null,
     [plannedTasks, activeTaskId],
+  );
+
+  const editingPlannedTask = useMemo(
+    () =>
+      editingPlannedTaskId
+        ? (plannedTasks.find((t) => t.id === editingPlannedTaskId) ?? null)
+        : null,
+    [plannedTasks, editingPlannedTaskId],
+  );
+
+  const editingPlannedItem = useMemo(
+    () =>
+      editingPlannedTask ? (itemById.get(editingPlannedTask.item_id) ?? null) : null,
+    [editingPlannedTask, itemById],
   );
 
   const [addOpen, setAddOpen] = useState(false);
@@ -166,15 +211,6 @@ export function PlannerScreen() {
     });
   }, [selectedDayTasks]);
 
-  const loadByDate = useMemo(() => {
-    const map = new Map<string, number>();
-    for (const d of weekDays) map.set(toISODate(d), 0);
-    for (const task of plannedTasks) {
-      map.set(task.scheduled_date, (map.get(task.scheduled_date) ?? 0) + 1);
-    }
-    return map;
-  }, [plannedTasks, weekDays]);
-
   const tasksCountByDate = useMemo(() => {
     const m = new Map<string, number>();
     for (const t of plannedTasks) {
@@ -185,16 +221,13 @@ export function PlannerScreen() {
 
   const headerSubtitle = useMemo(() => {
     const sel = new Date(`${selectedDateISO}T12:00:00`);
-    if (plannerView === "day") {
-      return sel.toLocaleDateString(undefined, {
-        weekday: "long",
-        month: "long",
-        day: "numeric",
-        year: "numeric",
-      });
-    }
-    return `${weekDays[0].toLocaleDateString(undefined, { month: "short", day: "numeric" })} – ${weekDays[6].toLocaleDateString(undefined, { month: "short", day: "numeric" })}`;
-  }, [plannerView, selectedDateISO, weekDays]);
+    return sel.toLocaleDateString(undefined, {
+      weekday: "long",
+      month: "long",
+      day: "numeric",
+      year: "numeric",
+    });
+  }, [selectedDateISO]);
 
   const sectionTitle = useMemo(() => {
     if (plannerView === "month") {
@@ -204,7 +237,7 @@ export function PlannerScreen() {
     if (plannerView === "day") {
       return selectedDateISO === todayISO ? "Today" : "Day schedule";
     }
-    return selectedDateISO === todayISO ? "Today" : "Selected day";
+    return "Week schedule";
   }, [plannerView, selectedDateISO, todayISO]);
 
   function plannedTaskToNewInput(t: PlannedTask): NewPlannedTaskInput {
@@ -477,9 +510,9 @@ export function PlannerScreen() {
 
     const weekISOs = weekDays.map((d) => toISODate(d));
     const existingInWeek = plannedTasks.filter((t) => weekISOs.includes(t.scheduled_date));
-    const inputs = buildPlanMyWeekInputs(items, existingInWeek, weekISOs);
+    const { inputs, deferred } = buildPlanMyWeekInputs(items, existingInWeek, weekISOs, todayISO);
 
-    if (inputs.length === 0) {
+    if (inputs.length === 0 && deferred.length === 0) {
       setToast({
         id: createId(),
         message:
@@ -490,33 +523,64 @@ export function PlannerScreen() {
 
     setPlanningWeek(true);
     try {
-      const rows = inputs.map((input) => plannedTaskToInsertRow(user.id, input));
-      const { data, error } = await supabase.from("planned_tasks").insert(rows).select();
-      if (error) {
-        setToast({ id: createId(), message: error.message });
-        return;
+      const nowISO = new Date().toISOString();
+
+      for (const d of deferred) {
+        const { error: upErr } = await supabase
+          .from("items")
+          .update({ next_due_date: d.nextDueISO, updated_at: nowISO })
+          .eq("id", d.itemId);
+        if (upErr) {
+          setToast({ id: createId(), message: upErr.message });
+          return;
+        }
       }
-      const mapped = (data ?? []).map((r) =>
-        mapPlannedTaskRow(r as Parameters<typeof mapPlannedTaskRow>[0]),
-      );
-      setPlannedTasks((prev) => [...mapped, ...prev]);
+
+      if (deferred.length) {
+        const defMap = new Map(deferred.map((d) => [d.itemId, d.nextDueISO]));
+        setItems((prev) =>
+          prev.map((i) =>
+            defMap.has(i.id) ? { ...i, next_due_date: defMap.get(i.id)!, updated_at: nowISO } : i,
+          ),
+        );
+      }
+
+      let mapped: PlannedTask[] = [];
+      if (inputs.length > 0) {
+        const rows = inputs.map((input) => plannedTaskToInsertRow(user.id, input));
+        const { data, error } = await supabase.from("planned_tasks").insert(rows).select();
+        if (error) {
+          setToast({ id: createId(), message: error.message });
+          return;
+        }
+        mapped = (data ?? []).map((r) =>
+          mapPlannedTaskRow(r as Parameters<typeof mapPlannedTaskRow>[0]),
+        );
+        setPlannedTasks((prev) => [...mapped, ...prev]);
+      }
+
+      const parts: string[] = [];
+      if (mapped.length > 0) {
+        parts.push(`Added ${mapped.length} task${mapped.length === 1 ? "" : "s"} to this week.`);
+      }
+      for (const d of deferred) {
+        parts.push(d.userMessage);
+      }
       setToast({
         id: createId(),
-        message: `Added ${mapped.length} task${mapped.length === 1 ? "" : "s"} to this week.`,
+        message: parts.join(" "),
       });
+      router.refresh();
     } finally {
       setPlanningWeek(false);
     }
   }
 
-  function shiftWeek(delta: -1 | 1) {
-    setWeekOffset((o) => o + delta);
-    setSelectedDateISO((prev) => {
-      const d = new Date(`${prev}T12:00:00`);
-      if (!Number.isFinite(d.getTime())) return prev;
-      d.setDate(d.getDate() + delta * 7);
-      setMonthCursor(startOfMonth(d));
-      return toISODate(d);
+  function shiftWeekTimeline(delta: -1 | 1) {
+    setWeekTimelinePage((prev) => {
+      const next = Math.max(0, prev + delta);
+      setWeekOffset(next);
+      return next;
     });
   }
 
@@ -525,12 +589,25 @@ export function PlannerScreen() {
     if (!Number.isFinite(target.getTime())) return;
     const d = daysFromTodayStart(todayStart, target);
     setWeekOffset(Math.floor(d / 7));
+    if (d >= 0) {
+      setWeekTimelinePage(Math.floor(d / 7));
+    } else {
+      setWeekTimelinePage(0);
+    }
     setSelectedDateISO(iso);
     setMonthCursor(startOfMonth(target));
   }
 
   function handlePlannerViewChange(v: PlannerView) {
     setPlannerView(v);
+    if (v === "week") {
+      const d = daysFromTodayStart(todayStart, new Date(`${selectedDateISO}T12:00:00`));
+      if (d >= 0) {
+        setWeekTimelinePage(Math.floor(d / 7));
+      } else {
+        setWeekTimelinePage(0);
+      }
+    }
     if (v === "month") {
       setMonthCursor(startOfMonth(new Date(`${selectedDateISO}T12:00:00`)));
     }
@@ -558,6 +635,19 @@ export function PlannerScreen() {
   function closeTaskActions() {
     setTaskActionsOpen(false);
     setActiveTaskId(null);
+  }
+
+  function openPlannerTaskEdit() {
+    if (!activeTaskId) return;
+    setEditingPlannedTaskId(activeTaskId);
+    setPlannerEditSessionKey((k) => k + 1);
+    setPlannerTaskEditOpen(true);
+    closeTaskActions();
+  }
+
+  function closePlannerTaskEdit() {
+    setPlannerTaskEditOpen(false);
+    setEditingPlannedTaskId(null);
   }
 
   async function updateTaskStatus(taskId: string, status: PlannedTask["status"]) {
@@ -596,7 +686,32 @@ export function PlannerScreen() {
     );
 
     const item = itemById.get(task.item_id);
-    if (!item || item.type !== "recurring") return;
+    if (!item) return;
+
+    if (item.type === "one_off") {
+      const { error: itemErr } = await supabase
+        .from("items")
+        .update({
+          is_archived: true,
+          last_completed_at: nowISO,
+          updated_at: nowISO,
+        })
+        .eq("id", item.id);
+      if (itemErr) {
+        setToast({ id: createId(), message: itemErr.message });
+        return;
+      }
+      setItems((prev) =>
+        prev.map((i) =>
+          i.id === item.id
+            ? { ...i, is_archived: true, last_completed_at: nowISO, updated_at: nowISO }
+            : i,
+        ),
+      );
+      return;
+    }
+
+    if (item.type !== "recurring") return;
 
     const nextDue = computeNextDueDate(item, nowISO);
     const { error: itemErr } = await supabase
@@ -642,6 +757,79 @@ export function PlannerScreen() {
           : t,
       ),
     );
+  }
+
+  async function deletePlannedTask(taskId: string) {
+    const { error } = await supabase.from("planned_tasks").delete().eq("id", taskId);
+    if (error) {
+      setToast({ id: createId(), message: error.message });
+      return;
+    }
+    setPlannedTasks((prev) => prev.filter((t) => t.id !== taskId));
+    closeTaskActions();
+    setToast({ id: createId(), message: "Task removed from planner." });
+  }
+
+  async function savePlannedTaskInstance(
+    taskId: string,
+    patch: {
+      scheduled_date: string;
+      scheduled_time_start: string | null;
+      scheduled_time_end: string | null;
+      notes: string | null;
+    },
+  ): Promise<boolean> {
+    const nowISO = new Date().toISOString();
+    const { error } = await supabase
+      .from("planned_tasks")
+      .update({ ...patch, updated_at: nowISO })
+      .eq("id", taskId);
+    if (error) {
+      setToast({ id: createId(), message: error.message });
+      return false;
+    }
+    setPlannedTasks((prev) =>
+      prev.map((t) => (t.id === taskId ? { ...t, ...patch, updated_at: nowISO } : t)),
+    );
+    setToast({ id: createId(), message: "Saved this event." });
+    router.refresh();
+    return true;
+  }
+
+  async function saveItemFromPlanner(updated: Item): Promise<boolean> {
+    const nowISO = new Date().toISOString();
+    const { error } = await supabase
+      .from("items")
+      .update({
+        title: updated.title,
+        category: updated.category,
+        type: updated.type,
+        frequency_type: updated.frequency_type,
+        frequency_value: updated.frequency_value,
+        preferred_days: updated.preferred_days,
+        preferred_time_of_day: updated.preferred_time_of_day,
+        estimated_minutes: updated.estimated_minutes,
+        priority: updated.priority,
+        flexibility: updated.flexibility,
+        cadence_pressure: updated.cadence_pressure,
+        minimum_success_threshold: updated.minimum_success_threshold,
+        notes: updated.notes,
+        is_archived: updated.is_archived,
+        last_completed_at: updated.last_completed_at,
+        next_due_date: updated.next_due_date,
+        updated_at: nowISO,
+      })
+      .eq("id", updated.id);
+    if (error) {
+      setToast({ id: createId(), message: error.message });
+      return false;
+    }
+    setItems((prev) =>
+      prev.map((i) => (i.id === updated.id ? { ...updated, updated_at: nowISO } : i)),
+    );
+    setToast({ id: createId(), message: "Saved inventory item." });
+    router.refresh();
+    return true;
   }
 
   async function handleAddPlannedTask(input: NewPlannedTaskInput) {
@@ -752,7 +940,7 @@ export function PlannerScreen() {
     <div className="flex flex-1 flex-col">
       <header className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          {(plannerView === "week" || plannerView === "day") && (
+          {plannerView === "day" && (
             <div className="flex flex-wrap items-center gap-2 text-[13px] text-ink-muted">
               <span>{headerSubtitle}</span>
               <PlannerCalendarPopover
@@ -804,14 +992,6 @@ export function PlannerScreen() {
               </button>
             ))}
           </div>
-          <button
-            type="button"
-            disabled={planningWeek || loading}
-            onClick={() => void handlePlanMyWeek()}
-            className="rounded-full bg-accent px-4 py-2 text-[13px] font-medium text-surface-raised shadow-soft transition-opacity disabled:cursor-not-allowed disabled:opacity-60"
-          >
-            {planningWeek ? "Planning…" : "Plan my week"}
-          </button>
         </div>
       </header>
 
@@ -821,47 +1001,29 @@ export function PlannerScreen() {
         <>
           <div className="flex flex-col gap-2 pb-3">
             {plannerView === "week" && (
-              <div className="flex items-start gap-2">
+              <div className="mx-auto flex w-full max-w-[390px] items-center justify-center gap-2 pb-1">
                 <button
                   type="button"
-                  onClick={() => shiftWeek(-1)}
-                  className="flex w-9 shrink-0 items-center justify-center self-stretch rounded-lg py-2 text-[var(--color-text-secondary)] transition-opacity hover:opacity-70 active:opacity-55"
+                  disabled={weekTimelinePage === 0}
+                  onClick={() => shiftWeekTimeline(-1)}
+                  className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg text-[rgba(15,57,76,0.6)] transition-opacity hover:opacity-80 active:opacity-60 disabled:pointer-events-none disabled:opacity-30"
                   aria-label="Previous 7 days"
                 >
                   <ChevronLeft className="h-5 w-5" strokeWidth={2} aria-hidden />
                 </button>
-                <div className="flex min-w-0 flex-1 items-start justify-center gap-2 overflow-x-auto [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-                  {weekDays.map((d) => {
-                    const iso = toISODate(d);
-                    const selected = iso === selectedDateISO;
-                    const isToday = iso === todayISO;
-                    const dotCount = loadByDate.get(iso) ?? 0;
-                    const dotClass = formatDayDotClass(dotCount);
-                    const dayAbbr = d.toLocaleDateString(undefined, { weekday: "narrow" });
-                    return (
-                      <button
-                        key={iso}
-                        type="button"
-                        onClick={() => jumpPlannerToDate(iso)}
-                        className={`flex min-w-[3.15rem] flex-col items-center gap-1 rounded-[20px] px-2 py-2 ${
-                          selected
-                            ? "bg-accent-soft/80 text-accent"
-                            : "bg-surface-raised text-ink-muted"
-                        } ${isToday && !selected ? "ring-1 ring-accent/25" : ""}`}
-                        aria-pressed={selected}
-                        aria-current={isToday ? "date" : undefined}
-                      >
-                        <span className="text-[11px] font-medium">{dayAbbr}</span>
-                        <span className="text-[13px] font-semibold">{d.getDate()}</span>
-                        <span className={`h-2 w-2 rounded-full ${dotClass}`} aria-hidden />
-                      </button>
-                    );
-                  })}
-                </div>
+                <span className="min-w-0 flex-1 text-center text-[13px] font-medium text-[#0f394c]">
+                  {weekTimelineRangeLabel}
+                </span>
+                <PlannerCalendarPopover
+                  weekDayISOs={timelineWeekISOs}
+                  todayISO={todayISO}
+                  selectedDateISO={selectedDateISO}
+                  onSelectDate={jumpPlannerToDate}
+                />
                 <button
                   type="button"
-                  onClick={() => shiftWeek(1)}
-                  className="flex w-9 shrink-0 items-center justify-center self-stretch rounded-lg py-2 text-[var(--color-text-secondary)] transition-opacity hover:opacity-70 active:opacity-55"
+                  onClick={() => shiftWeekTimeline(1)}
+                  className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg text-[rgba(15,57,76,0.6)] transition-opacity hover:opacity-80 active:opacity-60"
                   aria-label="Next 7 days"
                 >
                   <ChevronRight className="h-5 w-5" strokeWidth={2} aria-hidden />
@@ -923,6 +1085,18 @@ export function PlannerScreen() {
                   itemById={itemById}
                   onOpenTask={openTaskActions}
                 />
+              ) : plannerView === "week" ? (
+                <div className="flex w-full justify-center">
+                  <PlannerWeekTimelineView
+                    weekDays={timelineWeekDays}
+                    plannedTasks={plannedTasks}
+                    itemById={itemById}
+                    selectedDateISO={selectedDateISO}
+                    todayISO={todayISO}
+                    onSelectDate={jumpPlannerToDate}
+                    onOpenTask={openTaskActions}
+                  />
+                </div>
               ) : (
                 <PlannerTaskList
                   tasks={selectedDayTasksSortedForList}
@@ -941,6 +1115,8 @@ export function PlannerScreen() {
         disabled={loading}
         refiningLabel={refiningChip}
         parsingBrainDump={brainDumpParsing}
+        planningWeek={planningWeek}
+        onPlanMyWeek={() => void handlePlanMyWeek()}
         onRefine={(action, label, custom) => void handleRefineChip(action, label, custom)}
         onBrainDumpParse={(text) => void handleBrainDumpParse(text)}
       />
@@ -999,7 +1175,21 @@ export function PlannerScreen() {
           void moveTask(taskId, toISO);
           closeTaskActions();
         }}
+        onDelete={(taskId) => void deletePlannedTask(taskId)}
+        onOpenPlannerEdit={openPlannerTaskEdit}
       />
+
+      {plannerTaskEditOpen && editingPlannedTask && editingPlannedItem ? (
+        <PlannerTaskEditSheetLazy
+          open
+          sessionKey={plannerEditSessionKey}
+          task={editingPlannedTask}
+          item={editingPlannedItem}
+          onClose={closePlannerTaskEdit}
+          onSaveInstance={(taskId, patch) => savePlannedTaskInstance(taskId, patch)}
+          onSaveItem={(item) => saveItemFromPlanner(item)}
+        />
+      ) : null}
 
       {toast && (
         <ToastView
@@ -1037,7 +1227,6 @@ function ToastView({
 }
 
 const REFINE_CHIPS_SHEET: { label: string; action: RefineApiAction }[] = [
-  { label: "Plan my week", action: "plan_week" },
   { label: "Lighten today", action: "lighten_day" },
   { label: "1 hour tonight", action: "one_hour" },
   { label: "Rebalance week", action: "rebalance" },
@@ -1049,6 +1238,8 @@ function AskKeeperPanel({
   disabled,
   refiningLabel,
   parsingBrainDump,
+  planningWeek,
+  onPlanMyWeek,
   onRefine,
   onBrainDumpParse,
 }: {
@@ -1057,13 +1248,15 @@ function AskKeeperPanel({
   disabled?: boolean;
   refiningLabel: string | null;
   parsingBrainDump?: boolean;
+  planningWeek?: boolean;
+  onPlanMyWeek: () => void | Promise<void>;
   onRefine: (action: RefineApiAction, chipLabel: string, customPrompt?: string) => void | Promise<void>;
   onBrainDumpParse: (text: string) => void | Promise<void>;
 }) {
   const [customLine, setCustomLine] = useState("");
   const [brainDump, setBrainDump] = useState("");
 
-  const busy = Boolean(refiningLabel || parsingBrainDump);
+  const busy = Boolean(refiningLabel || parsingBrainDump || planningWeek);
 
   useEffect(() => {
     if (!open) {
@@ -1079,6 +1272,11 @@ function AskKeeperPanel({
   function pickChip(action: RefineApiAction, label: string) {
     close();
     void onRefine(action, label);
+  }
+
+  function runPlanMyWeek() {
+    close();
+    void onPlanMyWeek();
   }
 
   function submitCustom() {
@@ -1162,6 +1360,14 @@ function AskKeeperPanel({
                 Planner
               </p>
               <div className="flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  disabled={disabled || busy}
+                  onClick={() => runPlanMyWeek()}
+                  className="shrink-0 rounded-full border border-border bg-surface-alt px-3 py-2 text-[13px] font-medium text-ink-muted shadow-sm transition-colors hover:text-ink disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  {planningWeek ? "Planning…" : "Plan my week"}
+                </button>
                 {REFINE_CHIPS_SHEET.map(({ label, action }) => (
                   <button
                     key={label}
@@ -1574,6 +1780,8 @@ function TaskActionsSheet({
   onMarkDone,
   onSkip,
   onReschedule,
+  onDelete,
+  onOpenPlannerEdit,
 }: {
   open: boolean;
   task: PlannedTask | null;
@@ -1582,6 +1790,8 @@ function TaskActionsSheet({
   onMarkDone: (taskId: string) => void;
   onSkip: (taskId: string) => void;
   onReschedule: (taskId: string, toISODate: string) => void;
+  onDelete: (taskId: string) => void;
+  onOpenPlannerEdit: () => void;
 }) {
   if (!open || !task || !item) return null;
 
@@ -1640,6 +1850,22 @@ function TaskActionsSheet({
               Skip
             </button>
 
+            <button
+              type="button"
+              onClick={() => {
+                if (
+                  typeof window !== "undefined" &&
+                  !window.confirm("Remove this task from your planner? The inventory item is not deleted.")
+                ) {
+                  return;
+                }
+                onDelete(task.id);
+              }}
+              className="w-full rounded-[10px] border border-red-800/25 bg-surface-raised px-4 py-3 text-[13px] font-semibold text-red-900/90 shadow-soft hover:border-red-800/40 hover:bg-red-50/50"
+            >
+              Remove from planner
+            </button>
+
             <div className="pt-1">
               <div className="mb-2 text-[13px] font-medium text-ink-muted">Reschedule</div>
               <div className="grid grid-cols-2 gap-2">
@@ -1693,8 +1919,8 @@ function TaskActionsSheet({
 
             <button
               type="button"
-              onClick={onClose}
-              className="w-full rounded-[10px] border border-border bg-surface-raised px-4 py-3 text-[13px] font-semibold text-ink shadow-soft hover:border-border"
+              onClick={() => onOpenPlannerEdit()}
+              className="w-full rounded-[10px] border border-border bg-surface-raised px-4 py-3 text-[13px] font-semibold text-ink shadow-soft hover:border-accent/25"
             >
               Edit
             </button>
