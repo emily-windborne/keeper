@@ -3,8 +3,8 @@
 import { createClient } from "@lib/supabase";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { toISODate } from "@/components/planner/planner-view-utils";
-import { computeNextDueDate } from "@/lib/inventory/compute-next-due";
 import { mapItemRow, mapPlannedTaskRow, type PlannedTask } from "@/lib/db/map-rows";
+import { markPlannedTaskDone } from "@/lib/planner/mark-task-done";
 import type { Item } from "@/data/inventory-mock";
 
 type EnergyLevel = "Low" | "Medium" | "High";
@@ -177,42 +177,11 @@ export function CheckInScreen() {
     nowISO: string,
   ): Promise<{ error: string | null }> {
     const item = itemsById.get(task.item_id);
-    const itemRowId = task.item_id;
 
     try {
       if (outcome === "done") {
-        const { error: taskErr } = await supabase
-          .from("planned_tasks")
-          .update({ status: "done", updated_at: nowISO })
-          .eq("id", task.id);
-        if (taskErr) return { error: taskErr.message };
-
-        if (item?.type === "one_off") {
-          const { error: itemErr } = await supabase
-            .from("items")
-            .update({
-              is_archived: true,
-              last_completed_at: nowISO,
-              updated_at: nowISO,
-            })
-            .eq("id", itemRowId);
-          if (itemErr) return { error: itemErr.message };
-          return { error: null };
-        }
-
-        if (item?.type === "recurring") {
-          const nextDue = computeNextDueDate(item, nowISO);
-          const { error: itemErr } = await supabase
-            .from("items")
-            .update({
-              last_completed_at: nowISO,
-              next_due_date: nextDue,
-              updated_at: nowISO,
-            })
-            .eq("id", itemRowId);
-          if (itemErr) return { error: itemErr.message };
-        }
-        return { error: null };
+        const result = await markPlannedTaskDone(supabase, task, item ?? null, nowISO);
+        return { error: result.error };
       }
 
       if (outcome === "skipped") {
