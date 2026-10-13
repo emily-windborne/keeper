@@ -31,6 +31,8 @@ import { TaskActionsSheet } from "@/components/planner/TaskActionsSheet";
 import { ToastView } from "@/components/planner/ToastView";
 import { markPlannedTaskDone } from "@/lib/planner/mark-task-done";
 import { applyPlanMyWeek } from "@/lib/planner/apply-plan-my-week";
+import { DEFAULT_DAY_START_MIN } from "@/lib/planner/plan-my-week";
+import { loadUserSettings } from "@/lib/settings/user-settings";
 
 const PlannerTaskEditSheetLazy = dynamic(
   () => import("@/components/planner/PlannerTaskEditSheet"),
@@ -113,6 +115,7 @@ export function PlannerScreen() {
   const [items, setItems] = useState<Item[]>([]);
   const [plannedTasks, setPlannedTasks] = useState<PlannedTask[]>([]);
   const [loading, setLoading] = useState(true);
+  const [dayStartMin, setDayStartMin] = useState(DEFAULT_DAY_START_MIN);
 
   const itemById = useMemo(() => {
     const map = new Map<string, Item>();
@@ -144,6 +147,8 @@ export function PlannerScreen() {
         if (tasksRes.error) {
           setToast({ id: createId(), message: tasksRes.error.message });
         }
+        const settings = await loadUserSettings(supabase);
+        if (!cancelled) setDayStartMin(settings.dayStartMinutes);
       } catch (e) {
         if (!cancelled) {
           setToast({
@@ -515,7 +520,9 @@ export function PlannerScreen() {
 
     const weekISOs = weekDays.map((d) => toISODate(d));
     const existingInWeek = plannedTasks.filter((t) => weekISOs.includes(t.scheduled_date));
-    const { inputs, deferred } = buildPlanMyWeekInputs(items, existingInWeek, weekISOs, todayISO);
+    const { inputs, deferred } = buildPlanMyWeekInputs(items, existingInWeek, weekISOs, todayISO, {
+      dayStartMin,
+    });
 
     if (inputs.length === 0 && deferred.length === 0) {
       setToast({
@@ -805,6 +812,7 @@ export function PlannerScreen() {
       completed_count: 0,
       preferred_days: null,
       preferred_time_of_day: null,
+      fixed_start_time: null,
       estimated_minutes: payload.estimated_minutes,
       priority: "Standard",
       flexibility: "Flexible anytime",

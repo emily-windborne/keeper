@@ -94,6 +94,8 @@ function applyItemToForm(
     setEstimatedDuration: (v: string) => void;
     setPriority: (v: ItemPriority) => void;
     setFlexibility: (v: ItemFlexibility) => void;
+    setPreferredTime: (v: Item["preferred_time_of_day"]) => void;
+    setFixedStart: (v: string) => void;
     setCadencePressure: (v: ItemCadencePressure) => void;
     setMinimumSuccessThreshold: (v: string) => void;
   },
@@ -106,6 +108,8 @@ function applyItemToForm(
     setEstimatedDuration,
     setPriority,
     setFlexibility,
+    setPreferredTime,
+    setFixedStart,
     setCadencePressure,
     setMinimumSuccessThreshold,
   } = setters;
@@ -115,6 +119,8 @@ function applyItemToForm(
   setEstimatedDuration(`${item.estimated_minutes} min`);
   setPriority(item.priority);
   setFlexibility(item.flexibility);
+  setPreferredTime(item.preferred_time_of_day ?? "anytime");
+  setFixedStart(item.fixed_start_time ?? "");
   setCadencePressure(item.cadence_pressure);
   setMinimumSuccessThreshold(item.minimum_success_threshold ?? "");
   setRepeat(repeatFromItem(item));
@@ -128,6 +134,8 @@ function resetEmptyForm(setters: Parameters<typeof applyItemToForm>[1]) {
   setters.setEstimatedDuration("30 min");
   setters.setPriority("Standard");
   setters.setFlexibility("Fixed");
+  setters.setPreferredTime("anytime");
+  setters.setFixedStart("");
   setters.setCadencePressure("Can slide a little");
   setters.setMinimumSuccessThreshold("");
 }
@@ -162,6 +170,8 @@ export function ItemForm({
   const [estimatedDuration, setEstimatedDuration] = useState("30 min");
   const [priority, setPriority] = useState<ItemPriority>("Standard");
   const [flexibility, setFlexibility] = useState<ItemFlexibility>("Fixed");
+  const [preferredTime, setPreferredTime] = useState<Item["preferred_time_of_day"]>("anytime");
+  const [fixedStart, setFixedStart] = useState("");
   const [cadencePressure, setCadencePressure] = useState<ItemCadencePressure>(
     "Can slide a little",
   );
@@ -177,6 +187,8 @@ export function ItemForm({
         setEstimatedDuration,
         setPriority,
         setFlexibility,
+        setPreferredTime,
+        setFixedStart,
         setCadencePressure,
         setMinimumSuccessThreshold,
       });
@@ -189,6 +201,8 @@ export function ItemForm({
         setEstimatedDuration,
         setPriority,
         setFlexibility,
+        setPreferredTime,
+        setFixedStart,
         setCadencePressure,
         setMinimumSuccessThreshold,
       });
@@ -263,6 +277,9 @@ export function ItemForm({
         ? minimumSuccessThreshold.trim()
         : null,
       notes,
+      preferred_time_of_day: preferredTime,
+      fixed_start_time:
+        flexibility === "Fixed" && /^([01]\d|2[0-3]):[0-5]\d$/.test(fixedStart) ? fixedStart : null,
       next_due_date,
       updated_at: nowISO,
     };
@@ -275,7 +292,6 @@ export function ItemForm({
       : {
           id: createId(),
           ...shared,
-          preferred_time_of_day: null,
           completed_count: 0,
           is_archived: false,
           last_completed_at: null,
@@ -394,6 +410,55 @@ export function ItemForm({
           })}
         </div>
       </Field>
+
+      <Field label="Time of day">
+        <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+          {(
+            [
+              ["morning", "Morning"],
+              ["afternoon", "Afternoon"],
+              ["evening", "Evening"],
+              ["anytime", "Anytime"],
+            ] as const
+          ).map(([id, label]) => {
+            const active = preferredTime === id;
+            return (
+              <button
+                key={id}
+                type="button"
+                disabled={disabled}
+                onClick={() => setPreferredTime(id)}
+                className={`min-h-11 rounded-[10px] border px-2 text-sm font-medium disabled:opacity-60 ${
+                  active
+                    ? "border-accent/30 bg-accent-soft text-ink"
+                    : "border-border bg-surface-raised text-ink-muted"
+                }`}
+                aria-pressed={active}
+              >
+                {label}
+              </button>
+            );
+          })}
+        </div>
+        <span className="mt-1.5 block text-xs text-ink-muted">
+          Keeper uses this when it picks a time. A fixed clock time below is kept exactly.
+        </span>
+      </Field>
+
+      {flexibility === "Fixed" && (
+        <Field label="Starts at">
+          <input
+            type="time"
+            value={fixedStart}
+            disabled={disabled}
+            onChange={(e) => setFixedStart(e.target.value)}
+            className="w-full rounded-[10px] border border-border bg-surface-raised px-4 py-3 text-base text-ink shadow-sm outline-none focus:border-accent/40 focus:ring-2 focus:ring-accent/15 disabled:opacity-60"
+          />
+          <span className="mt-1.5 block text-xs text-ink-muted">
+            Example: Wednesday 1:00 to 4:00 is 13:00 and a 180 minute duration. Keeper will not slide it.
+          </span>
+        </Field>
+      )}
 
       <Field label="Cadence pressure">
         <div className="grid grid-cols-3 gap-2 rounded-[10px] border border-border bg-surface-alt p-1">

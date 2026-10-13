@@ -1,16 +1,55 @@
 "use client";
 
+import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@lib/supabase";
+import {
+  hhmmToMinutes,
+  loadUserSettings,
+  minutesToHHMM,
+  saveUserSettings,
+} from "@/lib/settings/user-settings";
 
 export default function SettingsPage() {
   const router = useRouter();
+  const supabase = useMemo(() => createClient(), []);
+  const [dayStart, setDayStart] = useState("06:00");
+  const [message, setMessage] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    void loadUserSettings(supabase).then((settings) => {
+      setDayStart(minutesToHHMM(settings.dayStartMinutes));
+    });
+  }, [supabase]);
 
   async function signOut() {
-    const supabase = createClient();
     await supabase.auth.signOut();
     router.push("/auth/signin");
     router.refresh();
+  }
+
+  async function saveDayStart() {
+    const minutes = hhmmToMinutes(dayStart);
+    if (minutes == null) {
+      setMessage("Choose a start time between 12:00 AM and 8:00 PM.");
+      return;
+    }
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+    if (!user) {
+      setMessage("Sign in to save settings.");
+      return;
+    }
+    setSaving(true);
+    const current = await loadUserSettings(supabase);
+    const error = await saveUserSettings(supabase, user.id, {
+      ...current,
+      dayStartMinutes: minutes,
+    });
+    setSaving(false);
+    setMessage(error ?? "Saved. New plans start the day at this time.");
   }
 
   return (
@@ -23,6 +62,27 @@ export default function SettingsPage() {
           Account and preferences.
         </p>
       </header>
+      <label className="mb-6 block max-w-sm">
+        <span className="mb-2 block text-sm font-medium text-ink">Day starts at</span>
+        <input
+          type="time"
+          value={dayStart}
+          onChange={(e) => setDayStart(e.target.value)}
+          className="w-full rounded-[10px] border border-border bg-surface-raised px-4 py-3 text-base text-ink shadow-sm outline-none focus:border-accent/40 focus:ring-2 focus:ring-accent/15"
+        />
+        <span className="mt-1.5 block text-xs text-ink-muted">
+          The planner will not place ordinary tasks before this time. The starting point is 6:00 AM.
+        </span>
+      </label>
+      <button
+        type="button"
+        onClick={() => void saveDayStart()}
+        disabled={saving}
+        className="mb-3 self-start rounded-[10px] bg-accent px-4 py-3 text-[13px] font-semibold text-surface-raised shadow-soft disabled:opacity-60"
+      >
+        {saving ? "Saving…" : "Save day start"}
+      </button>
+      {message && <p className="mb-6 text-[13px] text-ink-muted">{message}</p>}
       <button
         type="button"
         onClick={() => void signOut()}

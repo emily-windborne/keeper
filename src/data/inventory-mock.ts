@@ -15,6 +15,8 @@ export type Item = {
   completed_count: number;
   preferred_days: string[] | null; // e.g. ['wednesday']
   preferred_time_of_day: "morning" | "afternoon" | "evening" | "anytime" | null;
+  /** Clock time that must be kept when flexibility is Fixed, such as 13:00. */
+  fixed_start_time: string | null;
   estimated_minutes: number;
   priority: "Critical" | "Important" | "Standard" | "Optional";
   flexibility: "Fixed" | "Preferred window" | "Flexible anytime";
