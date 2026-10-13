@@ -5,6 +5,8 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { toISODate } from "@/components/planner/planner-view-utils";
 import { mapItemRow, mapPlannedTaskRow, type PlannedTask } from "@/lib/db/map-rows";
 import { markPlannedTaskDone } from "@/lib/planner/mark-task-done";
+import { saveNextRepeats } from "@/lib/planner/next-repeat";
+import { loadUserSettings } from "@/lib/settings/user-settings";
 import type { Item } from "@/data/inventory-mock";
 
 type EnergyLevel = "Low" | "Medium" | "High";
@@ -278,7 +280,37 @@ export function CheckInScreen() {
         }
       }
 
+      let scheduleError: string | null = null;
+      const markedDone = actioned.some((task) => outcomes[task.id] === "done");
+      if (markedDone) {
+        const settings = await loadUserSettings(supabase);
+        if (settings.autoScheduleNext) {
+          const [tasksRes, itemsRes] = await Promise.all([
+            supabase.from("planned_tasks").select("*").eq("user_id", user.id),
+            supabase.from("items").select("*").eq("user_id", user.id),
+          ]);
+          if (tasksRes.error) {
+            scheduleError = tasksRes.error.message;
+          } else if (itemsRes.error) {
+            scheduleError = itemsRes.error.message;
+          } else {
+            const filled = await saveNextRepeats(
+              supabase,
+              (itemsRes.data ?? []).map((row) => mapItemRow(row as Parameters<typeof mapItemRow>[0])),
+              (tasksRes.data ?? []).map((row) =>
+                mapPlannedTaskRow(row as Parameters<typeof mapPlannedTaskRow>[0]),
+              ),
+              todayISO,
+              new Date(),
+              settings.dayStartMinutes,
+            );
+            scheduleError = filled.error;
+          }
+        }
+      }
+
       await load();
+      if (scheduleError) setError(scheduleError);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Could not save check-in.");
     } finally {

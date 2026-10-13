@@ -193,3 +193,50 @@ test("occurrences on the same day do not overlap", () => {
     assert.ok(slots[i].start >= slots[i - 1].end + 15);
   }
 });
+
+test("a routine marker does not block a task at the same time", () => {
+  const routine: PlannedTask = {
+    id: "skin-task",
+    item_id: "skin",
+    title_snapshot: "Skincare",
+    scheduled_date: "2026-10-13",
+    scheduled_time_start: "09:00",
+    scheduled_time_end: "09:20",
+    status: "planned",
+    priority_override: null,
+    notes: null,
+    created_at: "2026-10-01T12:00:00.000Z",
+    updated_at: "2026-10-01T12:00:00.000Z",
+  };
+  const result = buildPlanMyWeekInputs(
+    [
+      item({
+        id: "skin",
+        title: "Skincare",
+        type: "anchor",
+        flexibility: "Fixed",
+        fixed_start_time: "09:00",
+        estimated_minutes: 20,
+        preferred_days: ["tuesday"],
+        times_per_period: 1,
+      }),
+      item({
+        id: "call",
+        title: "Call",
+        flexibility: "Fixed",
+        fixed_start_time: "09:00",
+        estimated_minutes: 20,
+        preferred_days: ["tuesday"],
+      }),
+    ],
+    [routine],
+    WEEK,
+    TODAY,
+    NOW,
+  );
+  const call = result.inputs.find((t) => t.item_id === "call");
+  assert.ok(call);
+  assert.equal(call?.scheduled_date, "2026-10-13");
+  assert.equal(call?.scheduled_time_start, "09:00");
+  assert.equal(result.inputs.some((t) => t.item_id === "skin"), false);
+});

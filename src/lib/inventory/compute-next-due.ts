@@ -52,7 +52,7 @@ export function withInitialNextDueDateIfNeeded(
   referenceAtISO: string,
 ): Omit<Item, "id" | "created_at" | "updated_at"> {
   if (item.next_due_date != null) return item;
-  if (item.type !== "recurring" && item.type !== "goal") return item;
+  if (item.type !== "recurring" && item.type !== "goal" && item.type !== "anchor") return item;
   if (item.frequency_type == null) return item;
   const next = computeInitialNextDueDate(item, referenceAtISO);
   if (!next) return item;

@@ -208,10 +208,15 @@ function findEarliestSlot(
   return null;
 }
 
+function taskOccupiesTime(t: PlannedTask, itemById: Map<string, Item>): boolean {
+  return itemById.get(t.item_id)?.type !== "anchor";
+}
+
 function intervalFromPlannedTask(
   t: PlannedTask,
   itemById: Map<string, Item>,
 ): { start: number; end: number } | null {
+  if (!taskOccupiesTime(t, itemById)) return null;
   const start = parseHHMM(t.scheduled_time_start);
   if (start == null) return null;
   const parsedEnd = parseHHMM(t.scheduled_time_end);
@@ -221,6 +226,7 @@ function intervalFromPlannedTask(
 }
 
 function estimatedMinutesForPlannedTask(t: PlannedTask, itemById: Map<string, Item>): number {
+  if (!taskOccupiesTime(t, itemById)) return 0;
   const s = parseHHMM(t.scheduled_time_start);
   const e = parseHHMM(t.scheduled_time_end);
   if (s != null && e != null) return Math.max(1, e - s);
@@ -357,11 +363,14 @@ function tryPlaceFixed(
     if (dateISO < todayISO) continue;
     const notBefore = dateISO === todayISO ? minutesNowCeil(now) : dayStartMin;
     if (startMin < Math.max(notBefore, dayStartMin)) continue;
-    const ivs = dayIntervals.get(dateISO) ?? [];
-    if (slotOverlaps(ivs, startMin, endMin)) continue;
-    ivs.push({ start: startMin, end: endMin });
-    dayIntervals.set(dateISO, sortIntervals(ivs));
-    loads[dayIdx] = (loads[dayIdx] ?? 0) + dur;
+    const quiet = item.type === "anchor";
+    const ivs = quiet ? [] : (dayIntervals.get(dateISO) ?? []);
+    if (!quiet && slotOverlaps(ivs, startMin, endMin)) continue;
+    if (!quiet) {
+      ivs.push({ start: startMin, end: endMin });
+      dayIntervals.set(dateISO, sortIntervals(ivs));
+      loads[dayIdx] = (loads[dayIdx] ?? 0) + dur;
+    }
     outputs.push({
       item_id: item.id,
       title_snapshot: item.title,
@@ -411,15 +420,17 @@ function tryPlaceOnDays(
     const bounds = dayPlacementBounds(item, dateISO, todayISO, now, dayStartMin);
     if (!bounds) continue;
 
-    const ivs = dayIntervals.get(dateISO) ?? [];
+    const quiet = item.type === "anchor";
+    const ivs = quiet ? [] : (dayIntervals.get(dateISO) ?? []);
     const startMin = findEarliestSlot(ivs, dur, bounds.minStart, bounds.maxEnd);
     if (startMin == null) continue;
 
     const endMin = startMin + dur;
-    ivs.push({ start: startMin, end: endMin });
-    dayIntervals.set(dateISO, sortIntervals(ivs));
-
-    loads[dayIdx] = (loads[dayIdx] ?? 0) + dur;
+    if (!quiet) {
+      ivs.push({ start: startMin, end: endMin });
+      dayIntervals.set(dateISO, sortIntervals(ivs));
+      loads[dayIdx] = (loads[dayIdx] ?? 0) + dur;
+    }
     outputs.push({
       item_id: item.id,
       title_snapshot: item.title,

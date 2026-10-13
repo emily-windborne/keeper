@@ -14,12 +14,14 @@ export default function SettingsPage() {
   const router = useRouter();
   const supabase = useMemo(() => createClient(), []);
   const [dayStart, setDayStart] = useState("06:00");
+  const [autoNext, setAutoNext] = useState(true);
   const [message, setMessage] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
     void loadUserSettings(supabase).then((settings) => {
       setDayStart(minutesToHHMM(settings.dayStartMinutes));
+      setAutoNext(settings.autoScheduleNext);
     });
   }, [supabase]);
 
@@ -47,9 +49,10 @@ export default function SettingsPage() {
     const error = await saveUserSettings(supabase, user.id, {
       ...current,
       dayStartMinutes: minutes,
+      autoScheduleNext: autoNext,
     });
     setSaving(false);
-    setMessage(error ?? "Saved. New plans start the day at this time.");
+    setMessage(error ?? "Saved.");
   }
 
   return (
@@ -74,13 +77,27 @@ export default function SettingsPage() {
           The planner will not place ordinary tasks before this time. The starting point is 6:00 AM.
         </span>
       </label>
+      <label className="mb-6 flex min-h-11 max-w-sm items-start gap-3 text-sm text-ink">
+        <input
+          type="checkbox"
+          className="mt-1"
+          checked={autoNext}
+          onChange={(e) => setAutoNext(e.target.checked)}
+        />
+        <span>
+          When I finish a repeat, put the next one on the calendar.
+          <span className="mt-1 block text-xs text-ink-muted">
+            Keeper also fills a repeat that is already due and has no upcoming task. It will not use a time that has passed or one that is already booked.
+          </span>
+        </span>
+      </label>
       <button
         type="button"
         onClick={() => void saveDayStart()}
         disabled={saving}
-        className="mb-3 self-start rounded-[10px] bg-accent px-4 py-3 text-[13px] font-semibold text-surface-raised shadow-soft disabled:opacity-60"
+        className="mb-3 min-h-11 self-start rounded-[10px] bg-accent px-4 py-3 text-[13px] font-semibold text-surface-raised shadow-soft disabled:opacity-60"
       >
-        {saving ? "Saving…" : "Save day start"}
+        {saving ? "Saving…" : "Save settings"}
       </button>
       {message && <p className="mb-6 text-[13px] text-ink-muted">{message}</p>}
       <button

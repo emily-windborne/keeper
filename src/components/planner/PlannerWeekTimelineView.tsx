@@ -365,6 +365,7 @@ export function PlannerWeekTimelineView({
         {weekISOs.map((iso) => {
           const dayTasks = tasksByDate.get(iso) ?? [];
           const timed: TimedEntry[] = [];
+          const markers: TimedEntry[] = [];
           const unscheduled: { task: PlannedTask; item: Item }[] = [];
           const isTodayCol = iso === todayISO;
 
@@ -378,18 +379,20 @@ export function PlannerWeekTimelineView({
               unscheduled.push({ task, item });
               continue;
             }
-            const durMin = Math.max(1, item.estimated_minutes);
+            const durMin = item.type === "anchor" ? 15 : Math.max(1, item.estimated_minutes);
             const rangeEnd = startRaw + durMin;
             const startMin = clamp(startRaw, timelineStartMin, timelineEndMin - 1);
             const endForLane = clamp(rangeEnd, startMin + 1, timelineEndMin);
-            timed.push({
+            const entry: TimedEntry = {
               task,
               item,
               startMin,
               endMin: endForLane,
               rangeStart: startRaw,
               rangeEnd,
-            });
+            };
+            if (item.type === "anchor") markers.push(entry);
+            else timed.push(entry);
           }
 
           const laneMap = buildOverlapLaneMap(timed);
@@ -457,6 +460,26 @@ export function PlannerWeekTimelineView({
                   aria-hidden
                 />
               )}
+
+              {markers.map(({ task, startMin }) => {
+                const topRatio = (startMin - timelineStartMin) / totalTimelineMin;
+                const topPx = timelineTop + topRatio * TIMELINE_HEIGHT;
+                return (
+                  <button
+                    key={task.id}
+                    type="button"
+                    onClick={() => onOpenTask(task.id)}
+                    className="absolute left-1/2 z-[6] flex h-11 w-11 -translate-x-1/2 items-center justify-center"
+                    style={{ top: topPx - 8 }}
+                    aria-label={`Routine, ${task.title_snapshot}, ${task.scheduled_time_start ?? ""}`}
+                  >
+                    <span
+                      className="h-2.5 w-2.5 rounded-full border border-[#caa510] bg-[#f5ecc4]"
+                      title={task.title_snapshot}
+                    />
+                  </button>
+                );
+              })}
 
               {/* Timed pills on spine */}
               {timed.map(({ task, item, startMin }) => {

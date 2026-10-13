@@ -37,6 +37,7 @@ const TYPE_OPTIONS: { value: ItemType; label: string }[] = [
   { value: "recurring", label: "Recurring" },
   { value: "one_off", label: "One-off" },
   { value: "goal", label: "Goal" },
+  { value: "anchor", label: "Routine" },
 ];
 
 const FLEXIBILITY_OPTIONS: { value: ItemFlexibility; label: string }[] = [
@@ -222,7 +223,7 @@ export function ItemForm({
     if (!trimmedTitle) return;
     if (parsedEstimatedMinutes == null) return;
 
-    const repeating = type === "recurring" || type === "goal";
+    const repeating = type === "recurring" || type === "goal" || type === "anchor";
     const every = clampEvery(Number(repeat.every));
     const frequency_unit = repeating ? repeat.unit : null;
     const frequency_value = repeating ? every : null;
@@ -339,7 +340,7 @@ export function ItemForm({
       </Field>
 
       <Field label="Type">
-        <div className="grid grid-cols-3 gap-2 rounded-[10px] border border-border bg-surface-alt p-1">
+        <div className="grid grid-cols-2 gap-2 rounded-[10px] border border-border bg-surface-alt p-1">
           {TYPE_OPTIONS.map((opt) => {
             const active = type === opt.value;
             return (
@@ -348,7 +349,7 @@ export function ItemForm({
                 type="button"
                 disabled={disabled}
                 onClick={() => setType(opt.value)}
-                className={`rounded-[10px] px-3 py-2 text-sm font-medium transition-colors disabled:opacity-60 ${
+                className={`min-h-11 rounded-[10px] px-3 py-2 text-sm font-medium transition-colors disabled:opacity-60 ${
                   active
                     ? "bg-surface-raised text-accent shadow-sm"
                     : "text-ink-muted hover:bg-surface-raised/70 hover:text-ink"

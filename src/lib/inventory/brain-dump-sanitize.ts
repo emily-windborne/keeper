@@ -11,7 +11,7 @@ const CATEGORIES = new Set<Item["category"]>([
   "Health",
 ]);
 
-const TYPES = new Set<Item["type"]>(["recurring", "one_off", "goal"]);
+const TYPES = new Set<Item["type"]>(["recurring", "one_off", "goal", "anchor"]);
 
 const FREQ = new Set<Item["frequency_type"]>([
   "daily",
@@ -144,7 +144,7 @@ export function sanitizeBrainDumpItem(raw: unknown): BrainDumpItemDraft | null {
     o.frequency_unit === "days" || o.frequency_unit === "weeks" || o.frequency_unit === "months"
       ? (o.frequency_unit as FrequencyUnit)
       : null;
-  const repeating = type === "recurring" || type === "goal";
+  const repeating = type === "recurring" || type === "goal" || type === "anchor";
   const interval = repeating
     ? intervalOf({
         frequency_type,
