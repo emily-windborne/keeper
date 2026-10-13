@@ -15,11 +15,15 @@ export function orderedTitles(tasks: { title: string; start: string | null }[]):
     .map((task) => task.title);
 }
 
-/** True once local time has reached the chosen morning minute. The daily job may run later. */
-export function hasReachedLocalTime(nowMinutes: number, targetMinutes: number): boolean {
+/** The free plan may start the 11:30 UTC job any time in that hour, including 6:00 AM Eastern in winter. */
+export const MORNING_EARLY_MINUTES = 90;
+const MORNING_LATE_MINUTES = 120;
+
+/** True when this person's local clock is near the morning time saved on their account. */
+export function isMorningSendTime(nowMinutes: number, targetMinutes: number): boolean {
   if (nowMinutes < 0 || nowMinutes >= 24 * 60) return false;
   if (targetMinutes < 0 || targetMinutes >= 24 * 60) return false;
-  return nowMinutes >= targetMinutes;
+  return nowMinutes >= targetMinutes - MORNING_EARLY_MINUTES && nowMinutes <= targetMinutes + MORNING_LATE_MINUTES;
 }
 
 export function zonedClock(now: Date, timeZone: string): { date: string; minutes: number } | null {

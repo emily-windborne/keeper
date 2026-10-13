@@ -2,7 +2,7 @@ import { createClient } from "@supabase/supabase-js";
 import webpush from "web-push";
 import { getSupabasePublicEnv } from "@/lib/supabase-public-env";
 import {
-  hasReachedLocalTime,
+  isMorningSendTime,
   morningDigestBody,
   orderedTitles,
   zonedClock,
@@ -116,7 +116,7 @@ export async function GET(request: Request) {
     if (
       row.morning_digest_enabled &&
       row.morning_digest_sent_on !== clock.date &&
-      hasReachedLocalTime(clock.minutes, row.morning_digest_minutes)
+      isMorningSendTime(clock.minutes, row.morning_digest_minutes)
     ) {
       const claimed = await claim(supabase, row.user_id, clock.date);
       if (claimed) {

@@ -233,7 +233,7 @@ export default function SettingsPage() {
             className="min-h-11 w-full rounded-[10px] border border-border bg-surface-raised px-4 py-3 text-base text-ink shadow-sm outline-none focus:border-accent/40 focus:ring-2 focus:ring-accent/15"
           />
           <span className="mt-1.5 block text-xs text-ink-muted">
-            Starts at 7:30 AM in your time zone. It goes out once each morning, after this time.
+            Starts at 7:30 AM in your time zone. It goes out once each morning. In winter it may arrive closer to 6:30 AM.
           </span>
         </label>
       </section>

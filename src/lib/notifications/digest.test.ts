@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
-  hasReachedLocalTime,
+  isMorningSendTime,
   morningDigestBody,
   orderedTitles,
   zonedClock,
@@ -24,13 +24,21 @@ test("the earliest timed task is the one to start with", () => {
   );
 });
 
-test("the morning note waits until the chosen time, then can still go out later", () => {
-  assert.equal(hasReachedLocalTime(7 * 60 + 30, 7 * 60 + 30), true);
-  assert.equal(hasReachedLocalTime(9 * 60, 7 * 60 + 30), true);
-  assert.equal(hasReachedLocalTime(7 * 60 + 29, 7 * 60 + 30), false);
+test("the morning note goes out near the saved local time, including an early winter run", () => {
+  assert.equal(isMorningSendTime(7 * 60 + 30, 7 * 60 + 30), true);
+  assert.equal(isMorningSendTime(6 * 60 + 30, 7 * 60 + 30), true);
+  assert.equal(isMorningSendTime(6 * 60, 7 * 60 + 30), true);
+  assert.equal(isMorningSendTime(5 * 60 + 59, 7 * 60 + 30), false);
+  assert.equal(isMorningSendTime(4 * 60 + 30, 7 * 60 + 30), false);
 });
 
 test("the clock is read in the saved timezone", () => {
-  const clock = zonedClock(new Date("2026-10-13T14:30:00.000Z"), "America/Los_Angeles");
-  assert.deepEqual(clock, { date: "2026-10-13", minutes: 7 * 60 + 30 });
+  assert.deepEqual(zonedClock(new Date("2026-10-13T11:30:00.000Z"), "America/New_York"), {
+    date: "2026-10-13",
+    minutes: 7 * 60 + 30,
+  });
+  assert.deepEqual(zonedClock(new Date("2027-01-13T11:30:00.000Z"), "America/New_York"), {
+    date: "2027-01-13",
+    minutes: 6 * 60 + 30,
+  });
 });

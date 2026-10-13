@@ -32,7 +32,7 @@ Add these in Vercel (Project Settings, Environment Variables), then redeploy:
 - `CRON_SECRET`, a long password you make up
 - `SUPABASE_SERVICE_ROLE_KEY`, the service_role key from Supabase. Do not put this key in a name that starts with `NEXT_PUBLIC_`.
 
-`vercel.json` runs the sender once a day at 16:00 UTC. That fits the free Hobby plan, which only allows a job once a day and may start it any time during that hour. 16:00 UTC is 9:00 AM Pacific during daylight saving and 8:00 AM Pacific in winter, so a 7:30 AM setting has already passed when the job runs. It will not land on 7:30 exactly. If you live far from the US West Coast, change the `16` in `vercel.json` to a UTC hour that is after your morning.
+`vercel.json` runs the sender once a day at 11:30 UTC. That fits the free Hobby plan. 11:30 UTC is 7:30 AM Eastern during daylight saving and 6:30 AM Eastern in winter. Vercel may start the job any time during that hour. Each note uses the timezone saved on that person's account, so the list is for their local today and it only goes out when that run is near their own morning time.
 
 ### Hot reload / Fast Refresh
 
