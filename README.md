@@ -13,6 +13,10 @@ npm run dev
 
 Open [http://localhost:3000](http://localhost:3000). The default route is **Planner**; use the bottom nav for Inventory, Check-In, and Settings.
 
+### Database
+
+Run the SQL files in `supabase/migrations` in filename order in the Supabase SQL editor. If the first schema is already applied, run each newer file once. `002_apply_plan_my_week.sql` lets Plan my week save the whole week in one step.
+
 ### Hot reload / Fast Refresh
 
 `next.config.ts` sets `watchOptions.pollIntervalMs` so Turbopack polls for file changes. That fixes inconsistent HMR when native file watching fails (common if the repo lives under **Desktop** with **iCloud**, or on some networked drives).
