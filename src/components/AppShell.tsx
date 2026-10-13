@@ -24,7 +24,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           />
         </Link>
       </header>
-      <main className="flex flex-1 flex-col px-5 pb-28 pt-4 sm:px-8 sm:pt-6 md:px-10">
+      <main className="flex flex-1 flex-col px-5 pb-[calc(7rem+max(0px,env(safe-area-inset-bottom,0px)-0.75rem))] pt-4 sm:px-8 sm:pt-6 md:px-10">
         {children}
       </main>
       <BottomNav />

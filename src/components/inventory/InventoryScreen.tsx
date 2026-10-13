@@ -1,16 +1,16 @@
 "use client";
 
 import { createClient } from "@lib/supabase";
-import Link from "next/link";
-import { useCallback, useEffect, useMemo, useState } from "react";
-import { CategoryIcon } from "@/components/CategoryIcon";
+import { useRouter, useSearchParams } from "next/navigation";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { ConfirmSheet } from "@/components/ConfirmSheet";
+import { FloatingAddButton, LIST_CLEARANCE_ABOVE_ADD_CLASS } from "@/components/FloatingAddButton";
 import { AddItemSheet } from "@/components/inventory/AddItemSheet";
-import {
-  type Item,
-  type ItemCategory,
-  type ItemPriority,
-} from "@/data/inventory-mock";
-import { itemToInsertRow, mapItemRow } from "@/lib/db/map-rows";
+import { InventoryItemRow } from "@/components/inventory/InventoryItemRow";
+import { ToastView } from "@/components/planner/ToastView";
+import { type Item, type ItemCategory } from "@/data/inventory-mock";
+import { itemToInsertRow, mapItemRow, mapPlannedTaskRow, plannedTaskToInsertRow, type PlannedTask } from "@/lib/db/map-rows";
+import { clearPendingItemDelete, readPendingItemDelete, type PendingItemDelete } from "@/lib/inventory/pending-delete";
 
 type FilterId = "all" | "archived" | "recurring" | "one_off" | "goal" | ItemCategory;
 
@@ -54,11 +54,18 @@ function formatCadence(item: Item): string {
 }
 
 export function InventoryScreen() {
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  const justDeleted = searchParams.get("justDeleted") === "1";
   const supabase = useMemo(() => createClient(), []);
+  const shownDeleteId = useRef<string | null>(null);
+  const holdingPendingDelete = useRef(false);
   const [activeFilter, setActiveFilter] = useState<FilterId>("all");
   const [items, setItems] = useState<Item[]>([]);
   const [loading, setLoading] = useState(true);
   const [addOpen, setAddOpen] = useState(false);
+  const [confirmItem, setConfirmItem] = useState<Item | null>(null);
+  const [toast, setToast] = useState<{ message: string; onUndo?: () => void | Promise<void> } | null>(null);
 
   const loadItems = useCallback(async () => {
     const { data: rows, error } = await supabase
@@ -73,17 +80,87 @@ export function InventoryScreen() {
     setItems((rows ?? []).map((r) => mapItemRow(r as Parameters<typeof mapItemRow>[0])));
   }, [supabase]);
 
+  const undoPendingDelete = useCallback(
+    async (pending: PendingItemDelete) => {
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+      if (!user) {
+        setToast({ message: "Sign in to undo that delete." });
+        return;
+      }
+      const { data: restored, error: restoreError } = await supabase
+        .from("items")
+        .insert(itemToInsertRow(user.id, pending.item))
+        .select()
+        .single();
+      if (restoreError || !restored) {
+        setToast({ message: restoreError?.message ?? "Could not undo." });
+        return;
+      }
+      const restoredItem = mapItemRow(restored as Parameters<typeof mapItemRow>[0]);
+      const tasks = pending.tasks;
+      if (tasks.length > 0) {
+        const { error: tasksError } = await supabase
+          .from("planned_tasks")
+          .insert(tasks.map((task: PlannedTask) => plannedTaskToInsertRow(user.id, { ...task, item_id: restoredItem.id })));
+        if (tasksError) {
+          setToast({ message: tasksError.message });
+          return;
+        }
+      }
+      clearPendingItemDelete();
+      holdingPendingDelete.current = false;
+      setItems((prev) => [restoredItem, ...prev.filter((row) => row.id !== pending.item.id && row.id !== restoredItem.id)]);
+      setToast({ message: "Restored." });
+    },
+    [supabase],
+  );
+
+  const showPendingDelete = useCallback(() => {
+    const pending = readPendingItemDelete();
+    if (!pending || shownDeleteId.current === pending.item.id) return;
+    shownDeleteId.current = pending.item.id;
+    holdingPendingDelete.current = true;
+    setItems((prev) => prev.filter((row) => row.id !== pending.item.id));
+    setToast({
+      message: `Deleted ${pending.item.title}.`,
+      onUndo: () => undoPendingDelete(pending),
+    });
+  }, [undoPendingDelete]);
+
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
     void (async () => {
       await loadItems();
-      if (!cancelled) setLoading(false);
+      if (cancelled) return;
+      setLoading(false);
+      showPendingDelete();
     })();
     return () => {
       cancelled = true;
     };
-  }, [loadItems]);
+  }, [loadItems, showPendingDelete]);
+
+  useEffect(() => {
+    if (!justDeleted) return;
+    showPendingDelete();
+    router.replace("/inventory");
+  }, [justDeleted, router, showPendingDelete]);
+
+  useEffect(() => {
+    if (!toast) return;
+    const shouldClearPending = holdingPendingDelete.current;
+    const timer = window.setTimeout(() => {
+      setToast(null);
+      if (shouldClearPending) {
+        holdingPendingDelete.current = false;
+        clearPendingItemDelete();
+      }
+    }, toast.onUndo ? 12000 : 2600);
+    return () => window.clearTimeout(timer);
+  }, [toast]);
 
   const filtered = useMemo(
     () => items.filter((item) => matchesFilter(item, activeFilter)),
@@ -117,8 +194,75 @@ export function InventoryScreen() {
     setAddOpen(false);
   }
 
+  async function deleteConfirmedItem() {
+    const item = confirmItem;
+    if (!item) return;
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+    if (!user) {
+      setToast({ message: "Sign in to delete an item." });
+      return;
+    }
+    const { data: taskRows } = await supabase.from("planned_tasks").select("*").eq("item_id", item.id);
+    const tasks = (taskRows ?? []).map((row) => mapPlannedTaskRow(row as Parameters<typeof mapPlannedTaskRow>[0]));
+    const { error } = await supabase.from("items").delete().eq("id", item.id);
+    if (error) {
+      setToast({ message: error.message });
+      return;
+    }
+    setItems((prev) => prev.filter((row) => row.id !== item.id));
+    setConfirmItem(null);
+    setToast({
+      message: `Deleted ${item.title}.`,
+      onUndo: async () => {
+        const { data: restored, error: restoreError } = await supabase
+          .from("items")
+          .insert(itemToInsertRow(user.id, item))
+          .select()
+          .single();
+        if (restoreError || !restored) {
+          setToast({ message: restoreError?.message ?? "Could not undo." });
+          return;
+        }
+        const restoredItem = mapItemRow(restored as Parameters<typeof mapItemRow>[0]);
+        if (tasks.length > 0) {
+          await supabase
+            .from("planned_tasks")
+            .insert(tasks.map((task) => plannedTaskToInsertRow(user.id, { ...task, item_id: restoredItem.id })));
+        }
+        setItems((prev) => [restoredItem, ...prev]);
+        setToast({ message: "Restored." });
+      },
+    });
+  }
+
+  async function archiveConfirmedItem() {
+    const item = confirmItem;
+    if (!item) return;
+    const nowISO = new Date().toISOString();
+    const { error } = await supabase
+      .from("items")
+      .update({ is_archived: !item.is_archived, updated_at: nowISO })
+      .eq("id", item.id);
+    if (error) {
+      setToast({ message: error.message });
+      return;
+    }
+    setItems((prev) => prev.map((row) => (row.id === item.id ? { ...row, is_archived: !item.is_archived } : row)));
+    setConfirmItem(null);
+    setToast({
+      message: item.is_archived ? "Back in the main list." : "Archived.",
+      onUndo: async () => {
+        await supabase.from("items").update({ is_archived: item.is_archived, updated_at: new Date().toISOString() }).eq("id", item.id);
+        setItems((prev) => prev.map((row) => (row.id === item.id ? { ...row, is_archived: item.is_archived } : row)));
+        setToast({ message: "Reverted." });
+      },
+    });
+  }
+
   return (
-    <div className="relative flex flex-1 flex-col pb-4">
+    <div className={`relative flex flex-1 flex-col ${LIST_CLEARANCE_ABOVE_ADD_CLASS}`}>
       <header className="mb-6 sm:mb-8">
         <h1 className="font-serif text-[26px] font-normal leading-tight tracking-tight text-ink sm:text-[26px]">
           Inventory
@@ -162,34 +306,12 @@ export function InventoryScreen() {
         <ul className="relative z-10 m-0 list-none flex flex-col gap-3 p-0 sm:gap-4">
           {filtered.map((item) => (
             <li key={item.id}>
-              <Link
-                href={`/inventory/${item.id}/edit`}
-                className="flex w-full min-h-[52px] min-w-0 touch-manipulation flex-col items-stretch rounded-[14px] border border-border bg-surface-raised p-4 text-left text-inherit no-underline shadow-soft transition-colors [-webkit-tap-highlight-color:transparent] hover:border-accent/20 active:bg-surface-alt/40 focus-visible:border-accent/25 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/20 sm:min-h-0"
-                aria-label={`Edit ${item.title}`}
-              >
-                <span className="pointer-events-none flex w-full min-w-0 flex-col gap-3 sm:flex-row sm:items-start sm:justify-between sm:gap-4">
-                  <span className="flex min-w-0 flex-1 flex-col">
-                    <span className="flex items-start gap-2">
-                      <CategoryIcon category={item.category} />
-                      <span className="min-w-0 flex-1 text-[15px] font-semibold leading-snug text-ink">
-                        {item.title}
-                      </span>
-                    </span>
-                    <span className="mt-1 block text-[13px] text-ink-muted">
-                      <span className="font-medium text-ink-muted/90">{item.category}</span>
-                      <span className="mx-1.5 text-ink-faint" aria-hidden>
-                        ·
-                      </span>
-                      <span>{formatCadence(item)}</span>
-                      <span className="mx-1.5 text-ink-faint" aria-hidden>
-                        ·
-                      </span>
-                      <span>{item.estimated_minutes} min</span>
-                    </span>
-                  </span>
-                  <PriorityPill priority={item.priority} />
-                </span>
-              </Link>
+              <InventoryItemRow
+                item={item}
+                detail={`${item.category} · ${formatCadence(item)} · ${item.estimated_minutes} min`}
+                onOpen={() => router.push(`/inventory/${item.id}/edit`)}
+                onAskDelete={() => setConfirmItem(item)}
+              />
             </li>
           ))}
         </ul>
@@ -201,40 +323,20 @@ export function InventoryScreen() {
         </p>
       )}
 
-      <button
-        type="button"
-        className="fixed bottom-[max(5.5rem,calc(4.5rem+env(safe-area-inset-bottom)))] right-5 z-40 flex h-14 w-14 items-center justify-center rounded-full bg-accent text-surface-raised shadow-[0_4px_14px_rgba(202,165,16,0.35)] transition-transform hover:scale-[1.02] active:scale-[0.98] sm:right-8"
-        aria-label="Add new item"
-        onClick={() => setAddOpen(true)}
-      >
-        <svg className="h-7 w-7" viewBox="0 0 24 24" fill="none" aria-hidden>
-          <path
-            d="M12 5v14M5 12h14"
-            stroke="currentColor"
-            strokeWidth={2}
-            strokeLinecap="round"
-          />
-        </svg>
-      </button>
+      <FloatingAddButton label="Add new item" onClick={() => setAddOpen(true)} />
 
       <AddItemSheet open={addOpen} onClose={closeItemSheet} onSave={(item) => void handleAddItem(item)} />
+      <ConfirmSheet
+        open={confirmItem != null}
+        title={confirmItem ? confirmItem.title : "Item"}
+        body="Swipe or a long press brought you here. Delete removes the item and its calendar entries. Archive hides it from the main list."
+        confirmLabel="Delete item"
+        secondaryLabel={confirmItem?.is_archived ? "Unarchive" : "Archive"}
+        onConfirm={() => void deleteConfirmedItem()}
+        onSecondary={() => void archiveConfirmedItem()}
+        onCancel={() => setConfirmItem(null)}
+      />
+      {toast ? <ToastView message={toast.message} onUndo={toast.onUndo} /> : null}
     </div>
-  );
-}
-
-function PriorityPill({ priority }: { priority: ItemPriority }) {
-  const styles: Record<ItemPriority, string> = {
-    Critical: "bg-accent-soft text-accent border-accent/15",
-    Important: "bg-accent-soft text-accent border-accent/15",
-    Standard: "bg-surface-alt text-ink-muted border-border",
-    Optional: "bg-surface-alt text-ink-muted border-border",
-  };
-
-  return (
-    <span
-      className={`inline-flex shrink-0 self-start rounded-full border px-3 py-1 text-[12px] font-medium sm:self-center ${styles[priority]}`}
-    >
-      {priority}
-    </span>
   );
 }

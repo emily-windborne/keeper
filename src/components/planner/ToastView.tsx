@@ -15,7 +15,7 @@ export function ToastView({
           <button
             type="button"
             onClick={() => void onUndo()}
-            className="shrink-0 rounded-full border border-border bg-surface-alt px-3 py-1.5 text-[13px] font-medium text-ink hover:border-accent/25"
+            className="min-h-11 shrink-0 rounded-full border border-border bg-surface-alt px-3 py-1.5 text-[13px] font-medium text-ink hover:border-accent/25"
           >
             Undo
           </button>

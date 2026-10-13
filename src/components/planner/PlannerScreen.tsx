@@ -30,6 +30,7 @@ import {
   proposalsFromRefine,
   type SchedulePreviewRow,
 } from "@/lib/planner/schedule-preview";
+import { ConfirmSheet } from "@/components/ConfirmSheet";
 import { AddToWeekSheet } from "@/components/planner/AddToWeekSheet";
 import { AskKeeperPanel } from "@/components/planner/AskKeeperPanel";
 import { BrainDumpPreviewSheet } from "@/components/planner/BrainDumpPreviewSheet";
@@ -40,6 +41,7 @@ import { applyPlanMyWeek } from "@/lib/planner/apply-plan-my-week";
 import { DEFAULT_DAY_START_MIN } from "@/lib/planner/plan-my-week";
 import { describeScheduleConflict, saveNextRepeats } from "@/lib/planner/next-repeat";
 import { loadUserSettings } from "@/lib/settings/user-settings";
+import { patchesForFutureTasks, syncFutureTasks } from "@/lib/inventory/future-tasks";
 
 const PlannerTaskEditSheetLazy = dynamic(
   () => import("@/components/planner/PlannerTaskEditSheet"),
@@ -226,6 +228,7 @@ export function PlannerScreen() {
     rows: SchedulePreviewRow[];
   } | null>(null);
   const [schedulePreviewSaving, setSchedulePreviewSaving] = useState(false);
+  const [taskDeleteId, setTaskDeleteId] = useState<string | null>(null);
   const [askKeeperOpen, setAskKeeperOpen] = useState(false);
   const [brainDumpParsing, setBrainDumpParsing] = useState(false);
   const [brainDumpPreviewOpen, setBrainDumpPreviewOpen] = useState(false);
@@ -769,8 +772,10 @@ export function PlannerScreen() {
   }
 
   function openTaskActions(taskId: string) {
+    setEditingPlannedTaskId(taskId);
+    setPlannerEditSessionKey((k) => k + 1);
+    setPlannerTaskEditOpen(true);
     setActiveTaskId(taskId);
-    setTaskActionsOpen(true);
   }
 
   function closeTaskActions() {
@@ -908,14 +913,40 @@ export function PlannerScreen() {
   }
 
   async function deletePlannedTask(taskId: string) {
+    const task = plannedTasks.find((row) => row.id === taskId);
+    if (!task) return;
     const { error } = await supabase.from("planned_tasks").delete().eq("id", taskId);
     if (error) {
       setToast({ id: createId(), message: error.message });
       return;
     }
     setPlannedTasks((prev) => prev.filter((t) => t.id !== taskId));
+    closePlannerTaskEdit();
     closeTaskActions();
-    setToast({ id: createId(), message: "Task removed from planner." });
+    setToast({
+      id: createId(),
+      message: "Task removed from the calendar.",
+      onUndo: async () => {
+        const {
+          data: { user },
+        } = await supabase.auth.getUser();
+        if (!user) return;
+        const { data, error: restoreError } = await supabase
+          .from("planned_tasks")
+          .insert(plannedTaskToInsertRow(user.id, task))
+          .select()
+          .single();
+        if (restoreError || !data) {
+          setToast({ id: createId(), message: restoreError?.message ?? "Could not undo." });
+          return;
+        }
+        setPlannedTasks((prev) => [
+          mapPlannedTaskRow(data as Parameters<typeof mapPlannedTaskRow>[0]),
+          ...prev,
+        ]);
+        setToast({ id: createId(), message: "Restored that task." });
+      },
+    });
   }
 
   async function savePlannedTaskInstance(
@@ -966,10 +997,29 @@ export function PlannerScreen() {
       setToast({ id: createId(), message: error.message });
       return false;
     }
-    setItems((prev) =>
-      prev.map((i) => (i.id === updated.id ? { ...updated, updated_at: nowISO } : i)),
+    const savedItem = { ...updated, updated_at: nowISO };
+    const synced = await syncFutureTasks(supabase, savedItem, todayISO);
+    if (synced.error) {
+      setToast({ id: createId(), message: synced.error });
+      return false;
+    }
+    const futurePatches = new Map(
+      patchesForFutureTasks(savedItem, plannedTasks, todayISO).map((patch) => [patch.id, patch]),
     );
-    setToast({ id: createId(), message: "Saved inventory item." });
+    setItems((prev) => prev.map((i) => (i.id === updated.id ? savedItem : i)));
+    setPlannedTasks((prev) =>
+      prev.map((task) => {
+        const patch = futurePatches.get(task.id);
+        if (!patch) return task;
+        return {
+          ...task,
+          title_snapshot: patch.title_snapshot,
+          scheduled_time_end: patch.scheduled_time_end,
+          updated_at: nowISO,
+        };
+      }),
+    );
+    setToast({ id: createId(), message: "Saved. Upcoming tasks use this title." });
     router.refresh();
     return true;
   }
@@ -1316,7 +1366,7 @@ export function PlannerScreen() {
       <button
         type="button"
         onClick={() => setAddOpen(true)}
-        className="fixed bottom-[calc(4rem+env(safe-area-inset-bottom)+4rem)] right-5 z-40 flex h-14 w-14 items-center justify-center rounded-full bg-accent text-surface-raised shadow-[0_4px_14px_rgba(202,165,16,0.35)] transition-transform hover:scale-[1.02] active:scale-[0.98] sm:right-8"
+        className="fixed bottom-[calc(7rem+max(0px,env(safe-area-inset-bottom,0px)-0.75rem))] right-5 z-40 flex h-14 w-14 items-center justify-center rounded-full bg-accent text-surface-raised shadow-[0_4px_14px_rgba(202,165,16,0.35)] transition-transform hover:scale-[1.02] active:scale-[0.98] sm:right-8"
         aria-label="Add planned task"
       >
         <svg className="h-7 w-7" viewBox="0 0 24 24" fill="none" aria-hidden>
@@ -1337,6 +1387,20 @@ export function PlannerScreen() {
         items={items}
         onAdd={(input) => void handleAddPlannedTask(input)}
         onQuickAdd={(payload) => void handleQuickAddPlannedTask(payload)}
+      />
+
+      <ConfirmSheet
+        open={taskDeleteId != null}
+        title="Delete this task?"
+        body="This takes it off the calendar. The inventory item stays. You can undo from the toast."
+        confirmLabel="Delete this task"
+        onConfirm={() => {
+          if (!taskDeleteId) return;
+          const id = taskDeleteId;
+          setTaskDeleteId(null);
+          void deletePlannedTask(id);
+        }}
+        onCancel={() => setTaskDeleteId(null)}
       />
 
       <TaskActionsSheet
@@ -1367,6 +1431,15 @@ export function PlannerScreen() {
           task={editingPlannedTask}
           item={editingPlannedItem}
           onClose={closePlannerTaskEdit}
+          onMarkDone={(taskId) => {
+            void markTaskDone(taskId);
+            closePlannerTaskEdit();
+          }}
+          onSkip={(taskId) => {
+            void updateTaskStatus(taskId, "skipped");
+            closePlannerTaskEdit();
+          }}
+          onDelete={(taskId) => setTaskDeleteId(taskId)}
           onSaveInstance={(taskId, patch) => savePlannedTaskInstance(taskId, patch)}
           onSaveItem={(item) => saveItemFromPlanner(item)}
         />
