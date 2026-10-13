@@ -1366,7 +1366,7 @@ export function PlannerScreen() {
       <button
         type="button"
         onClick={() => setAddOpen(true)}
-        className="fixed bottom-[calc(4rem+env(safe-area-inset-bottom)+4rem)] right-5 z-40 flex h-14 w-14 items-center justify-center rounded-full bg-accent text-surface-raised shadow-[0_4px_14px_rgba(202,165,16,0.35)] transition-transform hover:scale-[1.02] active:scale-[0.98] sm:right-8"
+        className="fixed bottom-[calc(7rem+max(0px,env(safe-area-inset-bottom,0px)-0.75rem))] right-5 z-40 flex h-14 w-14 items-center justify-center rounded-full bg-accent text-surface-raised shadow-[0_4px_14px_rgba(202,165,16,0.35)] transition-transform hover:scale-[1.02] active:scale-[0.98] sm:right-8"
         aria-label="Add planned task"
       >
         <svg className="h-7 w-7" viewBox="0 0 24 24" fill="none" aria-hidden>

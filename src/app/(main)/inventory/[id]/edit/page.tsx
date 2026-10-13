@@ -10,8 +10,9 @@ import { ItemForm } from "@/components/inventory/ItemForm";
 import { ToastView } from "@/components/planner/ToastView";
 import { toISODate } from "@/components/planner/planner-view-utils";
 import type { Item } from "@/data/inventory-mock";
-import { itemToInsertRow, itemToUpdateRow, mapItemRow, mapPlannedTaskRow, plannedTaskToInsertRow, type PlannedTask } from "@/lib/db/map-rows";
+import { itemToUpdateRow, mapItemRow, mapPlannedTaskRow, plannedTaskToInsertRow, type PlannedTask } from "@/lib/db/map-rows";
 import { syncFutureTasks } from "@/lib/inventory/future-tasks";
+import { routeAfterItemLoad, savePendingItemDelete } from "@/lib/inventory/pending-delete";
 
 export default function EditInventoryItemPage() {
   const params = useParams();
@@ -27,7 +28,7 @@ export default function EditInventoryItemPage() {
   const [confirmMode, setConfirmMode] = useState<"delete" | "clear" | null>(null);
   const [deleting, setDeleting] = useState(false);
   const [toast, setToast] = useState<{ message: string; onUndo?: () => void | Promise<void> } | null>(null);
-  const [removed, setRemoved] = useState(false);
+  const [missing, setMissing] = useState(false);
 
   const loadItem = useCallback(async () => {
     if (!id) {
@@ -45,14 +46,20 @@ export default function EditInventoryItemPage() {
       return;
     }
     if (!data) {
-      setFetchError("This item could not be found.");
       setItem(null);
+      setMissing(true);
       setLoading(false);
       return;
     }
+    setMissing(false);
     setItem(mapItemRow(data as Parameters<typeof mapItemRow>[0]));
     setLoading(false);
   }, [id, supabase]);
+
+  useEffect(() => {
+    if (routeAfterItemLoad({ found: !missing, fetchError }) !== "inventory") return;
+    router.replace("/inventory");
+  }, [missing, fetchError, router]);
 
   useEffect(() => {
     void loadItem();
@@ -202,36 +209,9 @@ export default function EditInventoryItemPage() {
         setSaveError(deleteErr.message);
         return;
       }
+      savePendingItemDelete({ item: snapshot, tasks });
       setConfirmMode(null);
-      setRemoved(true);
-      setToast({
-        message: "Deleted. You can undo this.",
-        onUndo: async () => {
-          const { data: restored, error: restoreError } = await supabase
-            .from("items")
-            .insert(itemToInsertRow(user.id, snapshot))
-            .select()
-            .single();
-          if (restoreError || !restored) {
-            setSaveError(restoreError?.message ?? "Could not undo.");
-            return;
-          }
-          const restoredItem = mapItemRow(restored as Parameters<typeof mapItemRow>[0]);
-          if (tasks.length > 0) {
-            const { error: tasksError } = await supabase
-              .from("planned_tasks")
-              .insert(tasks.map((task) => plannedTaskToInsertRow(user.id, { ...task, item_id: restoredItem.id })));
-            if (tasksError) {
-              setSaveError(tasksError.message);
-              return;
-            }
-          }
-          setItem(restoredItem);
-          setRemoved(false);
-          setToast({ message: "Restored." });
-          router.replace(`/inventory/${restoredItem.id}/edit`);
-        },
-      });
+      router.replace("/inventory?justDeleted=1");
     } finally {
       setDeleting(false);
     }
@@ -245,11 +225,10 @@ export default function EditInventoryItemPage() {
     );
   }
 
-  if (removed) {
+  if (missing) {
     return (
       <div className="flex flex-1 flex-col">
-        <p className="text-[13px] text-ink-muted">That item is deleted.</p>
-        {toast ? <ToastView message={toast.message} onUndo={toast.onUndo} /> : null}
+        <p className="text-[13px] text-ink-muted">Taking you back to your list.</p>
       </div>
     );
   }

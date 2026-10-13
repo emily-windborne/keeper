@@ -1,14 +1,16 @@
 "use client";
 
 import { createClient } from "@lib/supabase";
-import { useRouter } from "next/navigation";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ConfirmSheet } from "@/components/ConfirmSheet";
+import { FloatingAddButton, LIST_CLEARANCE_ABOVE_ADD_CLASS } from "@/components/FloatingAddButton";
 import { AddItemSheet } from "@/components/inventory/AddItemSheet";
 import { InventoryItemRow } from "@/components/inventory/InventoryItemRow";
 import { ToastView } from "@/components/planner/ToastView";
 import { type Item, type ItemCategory } from "@/data/inventory-mock";
-import { itemToInsertRow, mapItemRow, mapPlannedTaskRow, plannedTaskToInsertRow } from "@/lib/db/map-rows";
+import { itemToInsertRow, mapItemRow, mapPlannedTaskRow, plannedTaskToInsertRow, type PlannedTask } from "@/lib/db/map-rows";
+import { clearPendingItemDelete, readPendingItemDelete, type PendingItemDelete } from "@/lib/inventory/pending-delete";
 
 type FilterId = "all" | "archived" | "recurring" | "one_off" | "goal" | ItemCategory;
 
@@ -53,7 +55,11 @@ function formatCadence(item: Item): string {
 
 export function InventoryScreen() {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const justDeleted = searchParams.get("justDeleted") === "1";
   const supabase = useMemo(() => createClient(), []);
+  const shownDeleteId = useRef<string | null>(null);
+  const holdingPendingDelete = useRef(false);
   const [activeFilter, setActiveFilter] = useState<FilterId>("all");
   const [items, setItems] = useState<Item[]>([]);
   const [loading, setLoading] = useState(true);
@@ -74,21 +80,85 @@ export function InventoryScreen() {
     setItems((rows ?? []).map((r) => mapItemRow(r as Parameters<typeof mapItemRow>[0])));
   }, [supabase]);
 
+  const undoPendingDelete = useCallback(
+    async (pending: PendingItemDelete) => {
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+      if (!user) {
+        setToast({ message: "Sign in to undo that delete." });
+        return;
+      }
+      const { data: restored, error: restoreError } = await supabase
+        .from("items")
+        .insert(itemToInsertRow(user.id, pending.item))
+        .select()
+        .single();
+      if (restoreError || !restored) {
+        setToast({ message: restoreError?.message ?? "Could not undo." });
+        return;
+      }
+      const restoredItem = mapItemRow(restored as Parameters<typeof mapItemRow>[0]);
+      const tasks = pending.tasks;
+      if (tasks.length > 0) {
+        const { error: tasksError } = await supabase
+          .from("planned_tasks")
+          .insert(tasks.map((task: PlannedTask) => plannedTaskToInsertRow(user.id, { ...task, item_id: restoredItem.id })));
+        if (tasksError) {
+          setToast({ message: tasksError.message });
+          return;
+        }
+      }
+      clearPendingItemDelete();
+      holdingPendingDelete.current = false;
+      setItems((prev) => [restoredItem, ...prev.filter((row) => row.id !== pending.item.id && row.id !== restoredItem.id)]);
+      setToast({ message: "Restored." });
+    },
+    [supabase],
+  );
+
+  const showPendingDelete = useCallback(() => {
+    const pending = readPendingItemDelete();
+    if (!pending || shownDeleteId.current === pending.item.id) return;
+    shownDeleteId.current = pending.item.id;
+    holdingPendingDelete.current = true;
+    setItems((prev) => prev.filter((row) => row.id !== pending.item.id));
+    setToast({
+      message: `Deleted ${pending.item.title}.`,
+      onUndo: () => undoPendingDelete(pending),
+    });
+  }, [undoPendingDelete]);
+
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
     void (async () => {
       await loadItems();
-      if (!cancelled) setLoading(false);
+      if (cancelled) return;
+      setLoading(false);
+      showPendingDelete();
     })();
     return () => {
       cancelled = true;
     };
-  }, [loadItems]);
+  }, [loadItems, showPendingDelete]);
+
+  useEffect(() => {
+    if (!justDeleted) return;
+    showPendingDelete();
+    router.replace("/inventory");
+  }, [justDeleted, router, showPendingDelete]);
 
   useEffect(() => {
     if (!toast) return;
-    const timer = window.setTimeout(() => setToast(null), toast.onUndo ? 12000 : 2600);
+    const shouldClearPending = holdingPendingDelete.current;
+    const timer = window.setTimeout(() => {
+      setToast(null);
+      if (shouldClearPending) {
+        holdingPendingDelete.current = false;
+        clearPendingItemDelete();
+      }
+    }, toast.onUndo ? 12000 : 2600);
     return () => window.clearTimeout(timer);
   }, [toast]);
 
@@ -192,7 +262,7 @@ export function InventoryScreen() {
   }
 
   return (
-    <div className="relative flex flex-1 flex-col pb-4">
+    <div className={`relative flex flex-1 flex-col ${LIST_CLEARANCE_ABOVE_ADD_CLASS}`}>
       <header className="mb-6 sm:mb-8">
         <h1 className="font-serif text-[26px] font-normal leading-tight tracking-tight text-ink sm:text-[26px]">
           Inventory
@@ -253,21 +323,7 @@ export function InventoryScreen() {
         </p>
       )}
 
-      <button
-        type="button"
-        className="fixed bottom-[max(5.5rem,calc(4.5rem+env(safe-area-inset-bottom)))] right-5 z-40 flex h-14 w-14 items-center justify-center rounded-full bg-accent text-surface-raised shadow-[0_4px_14px_rgba(202,165,16,0.35)] transition-transform hover:scale-[1.02] active:scale-[0.98] sm:right-8"
-        aria-label="Add new item"
-        onClick={() => setAddOpen(true)}
-      >
-        <svg className="h-7 w-7" viewBox="0 0 24 24" fill="none" aria-hidden>
-          <path
-            d="M12 5v14M5 12h14"
-            stroke="currentColor"
-            strokeWidth={2}
-            strokeLinecap="round"
-          />
-        </svg>
-      </button>
+      <FloatingAddButton label="Add new item" onClick={() => setAddOpen(true)} />
 
       <AddItemSheet open={addOpen} onClose={closeItemSheet} onSave={(item) => void handleAddItem(item)} />
       <ConfirmSheet
