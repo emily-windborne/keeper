@@ -141,7 +141,7 @@ export function AskKeeperPanel({
                   type="button"
                   disabled={disabled || busy}
                   onClick={() => runPlanMyWeek()}
-                  className="shrink-0 rounded-full border border-border bg-surface-alt px-3 py-2 text-[13px] font-medium text-ink-muted shadow-sm transition-colors hover:text-ink disabled:cursor-not-allowed disabled:opacity-60"
+                  className="min-h-11 shrink-0 rounded-full border border-border bg-surface-alt px-3 py-2 text-[13px] font-medium text-ink-muted shadow-sm transition-colors hover:text-ink disabled:cursor-not-allowed disabled:opacity-60"
                 >
                   {planningWeek ? "Planning…" : "Plan my week"}
                 </button>
@@ -151,7 +151,7 @@ export function AskKeeperPanel({
                     type="button"
                     disabled={disabled || busy}
                     onClick={() => pickChip(action, label)}
-                    className="shrink-0 rounded-full border border-border bg-surface-alt px-3 py-2 text-[13px] font-medium text-ink-muted shadow-sm transition-colors hover:text-ink disabled:cursor-not-allowed disabled:opacity-60"
+                    className="min-h-11 shrink-0 rounded-full border border-border bg-surface-alt px-3 py-2 text-[13px] font-medium text-ink-muted shadow-sm transition-colors hover:text-ink disabled:cursor-not-allowed disabled:opacity-60"
                   >
                     {label}
                   </button>
@@ -169,13 +169,13 @@ export function AskKeeperPanel({
                     }
                   }}
                   placeholder="Or type a custom planner request"
-                  className="min-w-0 flex-1 rounded-[10px] border border-border bg-surface-raised px-3 py-2.5 text-[14px] text-ink placeholder:text-ink-faint focus:border-accent/40 focus:outline-none focus:ring-2 focus:ring-accent/15"
+                  className="min-h-11 min-w-0 flex-1 rounded-[10px] border border-border bg-surface-raised px-3 py-2.5 text-[14px] text-ink placeholder:text-ink-faint focus:border-accent/40 focus:outline-none focus:ring-2 focus:ring-accent/15"
                 />
                 <button
                   type="button"
                   disabled={disabled || busy || !customLine.trim()}
                   onClick={() => submitCustom()}
-                  className="shrink-0 rounded-[10px] border border-border bg-surface-alt px-3 py-2 text-[13px] font-medium text-ink hover:border-accent/25 disabled:cursor-not-allowed disabled:opacity-50"
+                  className="min-h-11 shrink-0 rounded-[10px] border border-border bg-surface-alt px-3 py-2 text-[13px] font-medium text-ink hover:border-accent/25 disabled:cursor-not-allowed disabled:opacity-50"
                 >
                   Send
                 </button>

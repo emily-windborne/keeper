@@ -23,7 +23,13 @@ import {
   type NewPlannedTaskInput,
 } from "@/lib/db/map-rows";
 import type { BrainDumpItemDraft } from "@/lib/api/brain-dump-types";
-import type { RefineApiAction, RefineChange, RefineResponseBody } from "@/lib/api/refine-types";
+import type { RefineApiAction, RefineResponseBody } from "@/lib/api/refine-types";
+import { SchedulePreviewSheet } from "@/components/planner/SchedulePreviewSheet";
+import {
+  proposalsFromPlan,
+  proposalsFromRefine,
+  type SchedulePreviewRow,
+} from "@/lib/planner/schedule-preview";
 import { AddToWeekSheet } from "@/components/planner/AddToWeekSheet";
 import { AskKeeperPanel } from "@/components/planner/AskKeeperPanel";
 import { BrainDumpPreviewSheet } from "@/components/planner/BrainDumpPreviewSheet";
@@ -213,8 +219,13 @@ export function PlannerScreen() {
   );
 
   const [addOpen, setAddOpen] = useState(false);
-  const [planningWeek, setPlanningWeek] = useState(false);
   const [refiningChip, setRefiningChip] = useState<string | null>(null);
+  const [schedulePreview, setSchedulePreview] = useState<{
+    title: string;
+    note: string;
+    rows: SchedulePreviewRow[];
+  } | null>(null);
+  const [schedulePreviewSaving, setSchedulePreviewSaving] = useState(false);
   const [askKeeperOpen, setAskKeeperOpen] = useState(false);
   const [brainDumpParsing, setBrainDumpParsing] = useState(false);
   const [brainDumpPreviewOpen, setBrainDumpPreviewOpen] = useState(false);
@@ -299,57 +310,16 @@ export function PlannerScreen() {
     };
   }
 
-  async function applyRefineChanges(
-    userId: string,
-    changes: RefineChange[],
-    current: PlannedTask[],
-  ): Promise<PlannedTask[]> {
-    let next = [...current];
-    for (const c of changes) {
-      const nowISO = new Date().toISOString();
-      if (c.action === "move") {
-        const { error } = await supabase
-          .from("planned_tasks")
-          .update({
-            scheduled_date: c.to_date,
-            status: "moved",
-            updated_at: nowISO,
-          })
-          .eq("id", c.planned_task_id);
-        if (error) throw new Error(error.message);
-        next = next.map((t) =>
-          t.id === c.planned_task_id
-            ? { ...t, scheduled_date: c.to_date, status: "moved", updated_at: nowISO }
-            : t,
-        );
-      } else if (c.action === "remove") {
-        const { error } = await supabase.from("planned_tasks").delete().eq("id", c.planned_task_id);
-        if (error) throw new Error(error.message);
-        next = next.filter((t) => t.id !== c.planned_task_id);
-      } else if (c.action === "add") {
-        const item = items.find((i) => i.id === c.item_id);
-        if (!item) throw new Error("Unknown item for add.");
-        const input: NewPlannedTaskInput = {
-          item_id: item.id,
-          title_snapshot: item.title,
-          scheduled_date: c.to_date,
-          scheduled_time_start: c.scheduled_time_start ?? null,
-          scheduled_time_end: null,
-          status: "planned",
-          priority_override: null,
-          notes: null,
-        };
-        const { data, error } = await supabase
-          .from("planned_tasks")
-          .insert(plannedTaskToInsertRow(userId, input))
-          .select()
-          .single();
-        if (error) throw new Error(error.message);
-        const mapped = mapPlannedTaskRow(data as Parameters<typeof mapPlannedTaskRow>[0]);
-        next = [mapped, ...next];
-      }
+  function clockContext() {
+    const now = new Date();
+    const time = `${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}`;
+    let timeZone = "UTC";
+    try {
+      timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
+    } catch {
+      timeZone = "UTC";
     }
-    return next;
+    return { date: toISODate(now), time, time_zone: timeZone, at: now };
   }
 
   async function syncPlannedTasksUndo(userId: string, before: PlannedTask[], after: PlannedTask[]) {
@@ -400,7 +370,7 @@ export function PlannerScreen() {
     }
 
     setRefiningChip(chipLabel);
-    const beforeSnapshot = plannedTasks.map((t) => ({ ...t }));
+    const clock = clockContext();
     try {
       const res = await fetch("/api/refine", {
         method: "POST",
@@ -421,6 +391,7 @@ export function PlannerScreen() {
                   ? todayISO
                   : undefined,
             available_minutes: action === "one_hour" ? 60 : undefined,
+            now: { date: clock.date, time: clock.time, time_zone: clock.time_zone },
           },
         }),
       });
@@ -428,25 +399,21 @@ export function PlannerScreen() {
       if (!res.ok) {
         throw new Error(data.error ?? "Request failed.");
       }
-      const afterTasks = await applyRefineChanges(user.id, data.changes, plannedTasks);
-      setPlannedTasks(afterTasks);
-      setToast({
-        id: createId(),
-        message: data.note,
-        onUndo: () =>
-          void (async () => {
-            try {
-              await syncPlannedTasksUndo(user.id, beforeSnapshot, afterTasks);
-              setPlannedTasks(beforeSnapshot.map((t) => ({ ...t })));
-              setToast({ id: createId(), message: "Reverted the last suggestion." });
-            } catch (e) {
-              setToast({
-                id: createId(),
-                message: e instanceof Error ? e.message : "Could not undo.",
-              });
-            }
-          })(),
-      });
+      const weekISOs = weekDays.map((d) => toISODate(d));
+      const rows = proposalsFromRefine(
+        data.changes,
+        items,
+        plannedTasks,
+        weekISOs,
+        todayISO,
+        clock.at,
+        dayStartMin,
+      );
+      if (rows.length === 0) {
+        setToast({ id: createId(), message: data.note });
+        return;
+      }
+      setSchedulePreview({ title: chipLabel, note: data.note, rows });
     } catch (e) {
       setToast({
         id: createId(),
@@ -550,48 +517,203 @@ export function PlannerScreen() {
       setToast({
         id: createId(),
         message:
-          "Nothing to schedule — no items due by the end of this week, or they’re already on the planner.",
+          "Nothing to schedule. No items are due by the end of this week, or they are already on the planner.",
       });
       return;
     }
 
-    setPlanningWeek(true);
-    try {
-      const nowISO = new Date().toISOString();
-      const saved = await applyPlanMyWeek(supabase, inputs, deferred);
-      if (saved.error) {
-        setToast({ id: createId(), message: saved.error });
+    setSchedulePreview({
+      title: "Plan my week",
+      note: "Choose what to put on the calendar. You can undo it afterward.",
+      rows: proposalsFromPlan(inputs, deferred, items),
+    });
+  }
+
+  async function confirmSchedulePreview(selected: SchedulePreviewRow[]) {
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+    if (!user) {
+      setToast({ id: createId(), message: "You need to be signed in." });
+      return;
+    }
+
+    const quietItemIds = new Set(items.filter((item) => item.type === "anchor").map((item) => item.id));
+    let working = [...plannedTasks];
+    for (const row of selected) {
+      if (row.kind === "remove" && row.removeId) {
+        working = working.filter((task) => task.id !== row.removeId);
+        continue;
+      }
+      const placed = row.move
+        ? {
+            itemId: working.find((task) => task.id === row.move?.planned_task_id)?.item_id ?? null,
+            date: row.move.scheduled_date,
+            start: row.move.scheduled_time_start,
+            end: row.move.scheduled_time_end,
+            ignore: row.move.planned_task_id,
+          }
+        : row.add
+          ? {
+              itemId: row.add.item_id,
+              date: row.add.scheduled_date,
+              start: row.add.scheduled_time_start,
+              end: row.add.scheduled_time_end,
+              ignore: undefined as string | undefined,
+            }
+          : null;
+      if (!placed) continue;
+      const conflict = describeScheduleConflict(
+        placed.ignore ? working.filter((task) => task.id !== placed.ignore) : working,
+        placed.date,
+        placed.start,
+        placed.end,
+        todayISO,
+        new Date(),
+        {
+          occupiesTime: placed.itemId ? itemById.get(placed.itemId)?.type !== "anchor" : true,
+          quietItemIds,
+        },
+      );
+      if (conflict) {
+        setToast({ id: createId(), message: conflict });
         return;
       }
+      if (row.move) {
+        working = working.map((task) =>
+          task.id === row.move?.planned_task_id
+            ? {
+                ...task,
+                scheduled_date: row.move.scheduled_date,
+                scheduled_time_start: row.move.scheduled_time_start,
+                scheduled_time_end: row.move.scheduled_time_end,
+              }
+            : task,
+        );
+      } else if (row.add) {
+        working = [
+          {
+            id: `pending-${row.key}`,
+            item_id: row.add.item_id,
+            title_snapshot: row.add.title_snapshot,
+            scheduled_date: row.add.scheduled_date,
+            scheduled_time_start: row.add.scheduled_time_start,
+            scheduled_time_end: row.add.scheduled_time_end,
+            status: "planned",
+            priority_override: null,
+            notes: null,
+            created_at: "",
+            updated_at: "",
+          },
+          ...working,
+        ];
+      }
+    }
 
-      if (deferred.length) {
-        const defMap = new Map(deferred.map((d) => [d.itemId, d.nextDueISO]));
+    const beforeTasks = plannedTasks.map((task) => ({ ...task }));
+    const beforeDue = new Map(items.map((item) => [item.id, item.next_due_date]));
+    setSchedulePreviewSaving(true);
+    try {
+      const nowISO = new Date().toISOString();
+      let nextTasks = [...plannedTasks];
+
+      for (const row of selected) {
+        if (row.kind !== "remove" || !row.removeId) continue;
+        const { error } = await supabase.from("planned_tasks").delete().eq("id", row.removeId);
+        if (error) throw new Error(error.message);
+        nextTasks = nextTasks.filter((task) => task.id !== row.removeId);
+      }
+
+      for (const row of selected) {
+        if (row.kind !== "move" || !row.move) continue;
+        const { error } = await supabase
+          .from("planned_tasks")
+          .update({
+            scheduled_date: row.move.scheduled_date,
+            scheduled_time_start: row.move.scheduled_time_start,
+            scheduled_time_end: row.move.scheduled_time_end,
+            status: "moved",
+            updated_at: nowISO,
+          })
+          .eq("id", row.move.planned_task_id);
+        if (error) throw new Error(error.message);
+        nextTasks = nextTasks.map((task) =>
+          task.id === row.move?.planned_task_id
+            ? {
+                ...task,
+                scheduled_date: row.move.scheduled_date,
+                scheduled_time_start: row.move.scheduled_time_start,
+                scheduled_time_end: row.move.scheduled_time_end,
+                status: "moved",
+                updated_at: nowISO,
+              }
+            : task,
+        );
+      }
+
+      const adds = selected.flatMap((row) => (row.kind === "add" && row.add ? [row.add] : []));
+      const deferred = selected.flatMap((row) =>
+        row.kind === "defer" && row.defer
+          ? [{ itemId: row.defer.itemId, title: row.title, nextDueISO: row.defer.nextDueISO, userMessage: row.detail }]
+          : [],
+      );
+      if (adds.length > 0 || deferred.length > 0) {
+        const saved = await applyPlanMyWeek(supabase, adds, deferred);
+        if (saved.error) throw new Error(saved.error);
+        if (saved.tasks.length > 0) nextTasks = [...saved.tasks, ...nextTasks];
+      }
+
+      if (deferred.length > 0) {
+        const defMap = new Map(deferred.map((row) => [row.itemId, row.nextDueISO]));
         setItems((prev) =>
-          prev.map((i) =>
-            defMap.has(i.id) ? { ...i, next_due_date: defMap.get(i.id)!, updated_at: nowISO } : i,
+          prev.map((item) =>
+            defMap.has(item.id) ? { ...item, next_due_date: defMap.get(item.id)!, updated_at: nowISO } : item,
           ),
         );
       }
 
-      const mapped = saved.tasks;
-      if (mapped.length > 0) {
-        setPlannedTasks((prev) => [...mapped, ...prev]);
-      }
-
-      const parts: string[] = [];
-      if (mapped.length > 0) {
-        parts.push(`Added ${mapped.length} task${mapped.length === 1 ? "" : "s"} to this week.`);
-      }
-      for (const d of deferred) {
-        parts.push(d.userMessage);
-      }
+      setPlannedTasks(nextTasks);
+      setSchedulePreview(null);
+      const count = selected.length;
       setToast({
         id: createId(),
-        message: parts.join(" "),
+        message: count === 1 ? "Added 1 change." : `Added ${count} changes.`,
+        onUndo: () =>
+          void (async () => {
+            try {
+              await syncPlannedTasksUndo(user.id, beforeTasks, nextTasks);
+              for (const row of selected) {
+                if (row.kind !== "defer" || !row.defer) continue;
+                const previous = beforeDue.get(row.defer.itemId) ?? null;
+                const { error } = await supabase
+                  .from("items")
+                  .update({ next_due_date: previous, updated_at: new Date().toISOString() })
+                  .eq("id", row.defer.itemId);
+                if (error) throw new Error(error.message);
+              }
+              setPlannedTasks(beforeTasks.map((task) => ({ ...task })));
+              setItems((prev) =>
+                prev.map((item) =>
+                  beforeDue.has(item.id) ? { ...item, next_due_date: beforeDue.get(item.id) ?? null } : item,
+                ),
+              );
+              setToast({ id: createId(), message: "Reverted the last change." });
+            } catch (e) {
+              setToast({
+                id: createId(),
+                message: e instanceof Error ? e.message : "Could not undo.",
+              });
+            }
+          })(),
       });
       router.refresh();
+    } catch (e) {
+      setToast({
+        id: createId(),
+        message: e instanceof Error ? e.message : "Could not save those changes.",
+      });
     } finally {
-      setPlanningWeek(false);
+      setSchedulePreviewSaving(false);
     }
   }
 
@@ -1164,10 +1286,20 @@ export function PlannerScreen() {
         disabled={loading}
         refiningLabel={refiningChip}
         parsingBrainDump={brainDumpParsing}
-        planningWeek={planningWeek}
+        planningWeek={false}
         onPlanMyWeek={() => void handlePlanMyWeek()}
         onRefine={(action, label, custom) => void handleRefineChip(action, label, custom)}
         onBrainDumpParse={(text) => void handleBrainDumpParse(text)}
+      />
+
+      <SchedulePreviewSheet
+        open={schedulePreview != null}
+        title={schedulePreview?.title ?? "Review"}
+        note={schedulePreview?.note ?? ""}
+        rows={schedulePreview?.rows ?? []}
+        saving={schedulePreviewSaving}
+        onClose={() => setSchedulePreview(null)}
+        onConfirm={(selected) => void confirmSchedulePreview(selected)}
       />
 
       <BrainDumpPreviewSheet

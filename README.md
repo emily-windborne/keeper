@@ -4,7 +4,7 @@ Mobile-first app shell built with Next.js, TypeScript, and Tailwind CSS.
 
 ## Setup
 
-Add `ANTHROPIC_API_KEY` to `.env.local` for Planner AI refine (`POST /api/refine`). Without it, refine requests return a configuration error.
+Add `ANTHROPIC_API_KEY` to `.env.local` for Planner AI (`POST /api/refine` and brain dump). Without it, those requests return a configuration error. Refine uses `claude-sonnet-5-5`. Brain dump uses `claude-haiku-5-5`. Plan my week and Ask Keeper show a preview before anything is saved.
 
 ```bash
 npm install
