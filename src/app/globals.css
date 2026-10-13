@@ -25,3 +25,8 @@ body {
   color: var(--color-text-primary);
   background: var(--color-bg);
 }
+
+/* A flex summary stops Chrome from hiding the rest of a closed details element. */
+details:not([open]) > :not(summary) {
+  display: none;
+}

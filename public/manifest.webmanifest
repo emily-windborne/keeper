@@ -1,0 +1,16 @@
+{
+  "name": "Keeper",
+  "short_name": "Keeper",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#f6f4f0",
+  "theme_color": "#f6f4f0",
+  "icons": [
+    {
+      "src": "/keeper-logo.png",
+      "sizes": "1024x512",
+      "type": "image/png",
+      "purpose": "any"
+    }
+  ]
+}
