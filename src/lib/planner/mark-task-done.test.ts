@@ -19,6 +19,7 @@ function item(partial: Partial<Item>): Item {
     completed_count: 0,
     preferred_days: ["wednesday"],
     preferred_time_of_day: "morning",
+    fixed_start_time: null,
     estimated_minutes: 20,
     priority: "Standard",
     flexibility: "Flexible anytime",

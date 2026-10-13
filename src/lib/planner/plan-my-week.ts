@@ -20,7 +20,8 @@ const CADENCE_ORDER: Record<Item["cadence_pressure"], number> = {
 /** Minimum gap between the end of one task and the start of the next on the same day. */
 const MIN_GAP_MINUTES = 15;
 
-const SCHEDULE_DAY_START_MIN = 7 * 60;
+/** Default day start is 6:00. Settings can move it. */
+export const DEFAULT_DAY_START_MIN = 6 * 60;
 /** Tasks must finish by this minute-of-day (23:00). */
 const SCHEDULE_LAST_END_MIN = 23 * 60;
 
@@ -139,15 +140,16 @@ function dayPlacementBounds(
   dayISO: string,
   todayISO: string,
   now: Date,
+  dayStartMin: number,
 ): { minStart: number; maxEnd: number } | null {
   const dur = Math.max(1, item.estimated_minutes);
-  const notBefore = dayISO === todayISO ? minutesNowCeil(now) : SCHEDULE_DAY_START_MIN;
+  const notBefore = dayISO === todayISO ? minutesNowCeil(now) : dayStartMin;
 
   let bandMin: number;
   let bandMaxEnd: number;
 
   if (item.flexibility === "Flexible anytime") {
-    bandMin = SCHEDULE_DAY_START_MIN;
+    bandMin = dayStartMin;
     bandMaxEnd = SCHEDULE_LAST_END_MIN;
   } else {
     switch (item.preferred_time_of_day) {
@@ -171,7 +173,7 @@ function dayPlacementBounds(
     }
   }
 
-  const minStart = Math.max(bandMin, notBefore, SCHEDULE_DAY_START_MIN);
+  const minStart = Math.max(bandMin, notBefore, dayStartMin);
   const maxEnd = Math.min(bandMaxEnd, SCHEDULE_LAST_END_MIN);
   if (minStart + dur > maxEnd) return null;
   return { minStart, maxEnd };
@@ -324,16 +326,81 @@ export function timesPerPeriod(item: Item): number {
   return Math.min(14, Math.max(1, Math.round(n)));
 }
 
+function slotOverlaps(
+  intervals: { start: number; end: number }[],
+  start: number,
+  end: number,
+): boolean {
+  return intervals.some((iv) => start < iv.end + MIN_GAP_MINUTES && end + MIN_GAP_MINUTES > iv.start);
+}
+
+/** Fixed clock time stays put. Returns null instead of sliding to another hour. */
+function tryPlaceFixed(
+  item: Item,
+  dayIndices: number[],
+  weekDayISOs: string[],
+  todayISO: string,
+  now: Date,
+  dayStartMin: number,
+  dayIntervals: Map<string, { start: number; end: number }[]>,
+  loads: number[],
+  outputs: NewPlannedTaskInput[],
+): string | null {
+  const startMin = parseHHMM(item.fixed_start_time);
+  if (startMin == null) return null;
+  const dur = Math.max(1, item.estimated_minutes);
+  const endMin = startMin + dur;
+  if (endMin > SCHEDULE_LAST_END_MIN) return null;
+
+  for (const dayIdx of dayIndices) {
+    const dateISO = weekDayISOs[dayIdx]!;
+    if (dateISO < todayISO) continue;
+    const notBefore = dateISO === todayISO ? minutesNowCeil(now) : dayStartMin;
+    if (startMin < Math.max(notBefore, dayStartMin)) continue;
+    const ivs = dayIntervals.get(dateISO) ?? [];
+    if (slotOverlaps(ivs, startMin, endMin)) continue;
+    ivs.push({ start: startMin, end: endMin });
+    dayIntervals.set(dateISO, sortIntervals(ivs));
+    loads[dayIdx] = (loads[dayIdx] ?? 0) + dur;
+    outputs.push({
+      item_id: item.id,
+      title_snapshot: item.title,
+      scheduled_date: dateISO,
+      scheduled_time_start: minutesToTime(startMin),
+      scheduled_time_end: minutesToTime(endMin),
+      status: "planned",
+      priority_override: null,
+      notes: null,
+    });
+    return dateISO;
+  }
+  return null;
+}
+
 function tryPlaceOnDays(
   item: Item,
   dayIndices: number[],
   weekDayISOs: string[],
   todayISO: string,
   now: Date,
+  dayStartMin: number,
   dayIntervals: Map<string, { start: number; end: number }[]>,
   loads: number[],
   outputs: NewPlannedTaskInput[],
 ): string | null {
+  if (item.flexibility === "Fixed" && item.fixed_start_time) {
+    return tryPlaceFixed(
+      item,
+      dayIndices,
+      weekDayISOs,
+      todayISO,
+      now,
+      dayStartMin,
+      dayIntervals,
+      loads,
+      outputs,
+    );
+  }
   const dur = Math.max(1, item.estimated_minutes);
   const ordered = [...dayIndices];
 
@@ -341,7 +408,7 @@ function tryPlaceOnDays(
     const dateISO = weekDayISOs[dayIdx]!;
     if (dateISO < todayISO) continue;
 
-    const bounds = dayPlacementBounds(item, dateISO, todayISO, now);
+    const bounds = dayPlacementBounds(item, dateISO, todayISO, now, dayStartMin);
     if (!bounds) continue;
 
     const ivs = dayIntervals.get(dateISO) ?? [];
@@ -374,13 +441,34 @@ function tryPlaceOnDays(
  * Tasks on the same day are sequential with at least 15 minutes between them, never double-booked.
  * Placement respects preferred_time_of_day bands, current time on today, and load-balances across allowed days.
  */
+export type PlanScheduleOptions = {
+  now?: Date;
+  /** Minutes from midnight. Defaults to 6:00. */
+  dayStartMin?: number;
+};
+
+function resolveSchedule(input?: Date | PlanScheduleOptions): { now: Date; dayStartMin: number } {
+  if (input instanceof Date || input == null) {
+    return { now: input ?? new Date(), dayStartMin: DEFAULT_DAY_START_MIN };
+  }
+  const dayStart = input.dayStartMin;
+  return {
+    now: input.now ?? new Date(),
+    dayStartMin:
+      typeof dayStart === "number" && dayStart >= 0 && dayStart <= 20 * 60
+        ? dayStart
+        : DEFAULT_DAY_START_MIN,
+  };
+}
+
 export function buildPlanMyWeekInputs(
   items: Item[],
   existingPlanned: PlannedTask[],
   weekDayISOs: string[],
   todayISO: string,
-  now: Date = new Date(),
+  nowOrOptions: Date | PlanScheduleOptions = new Date(),
 ): PlanMyWeekResult {
+  const { now, dayStartMin } = resolveSchedule(nowOrOptions);
   const empty: PlanMyWeekResult = { inputs: [], deferred: [] };
   if (weekDayISOs.length === 0) return empty;
 
@@ -520,6 +608,7 @@ export function buildPlanMyWeekInputs(
             weekDayISOs,
             todayISO,
             now,
+            dayStartMin,
             dayIntervals,
             loads,
             outputs,
@@ -545,6 +634,7 @@ export function buildPlanMyWeekInputs(
         weekDayISOs,
         todayISO,
         now,
+        dayStartMin,
         dayIntervals,
         loads,
         outputs,
@@ -565,6 +655,7 @@ export function buildPlanMyWeekInputs(
           weekDayISOs,
           todayISO,
           now,
+          dayStartMin,
           dayIntervals,
           loads,
           outputs,

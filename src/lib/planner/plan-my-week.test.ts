@@ -30,6 +30,7 @@ function item(partial: Partial<Item> & Pick<Item, "id" | "title">): Item {
     completed_count: 0,
     preferred_days: null,
     preferred_time_of_day: "anytime",
+    fixed_start_time: null,
     estimated_minutes: 30,
     priority: "Standard",
     flexibility: "Flexible anytime",
@@ -99,6 +100,78 @@ test("tasks already on the week count toward times per period", () => {
   );
   assert.equal(result.inputs.length, 2);
   assert.ok(result.inputs.every((t) => t.scheduled_date !== "2026-10-13" || t.scheduled_time_start !== "09:00"));
+});
+
+test("a fixed clock time stays at that time", () => {
+  const result = buildPlanMyWeekInputs(
+    [
+      item({
+        id: "mom",
+        title: "Visit mom",
+        flexibility: "Fixed",
+        fixed_start_time: "13:00",
+        estimated_minutes: 180,
+        preferred_days: ["wednesday"],
+        frequency_unit: "weeks",
+        times_per_period: 1,
+      }),
+    ],
+    [],
+    WEEK,
+    TODAY,
+    NOW,
+  );
+  assert.equal(result.inputs.length, 1);
+  assert.equal(result.inputs[0]?.scheduled_date, "2026-10-14");
+  assert.equal(result.inputs[0]?.scheduled_time_start, "13:00");
+  assert.equal(result.inputs[0]?.scheduled_time_end, "16:00");
+});
+
+test("a taken fixed time is not moved to a different hour", () => {
+  const blocking: PlannedTask = {
+    id: "busy",
+    item_id: "other",
+    title_snapshot: "Busy",
+    scheduled_date: "2026-10-14",
+    scheduled_time_start: "13:00",
+    scheduled_time_end: "16:00",
+    status: "planned",
+    priority_override: null,
+    notes: null,
+    created_at: "2026-10-01T12:00:00.000Z",
+    updated_at: "2026-10-01T12:00:00.000Z",
+  };
+  const result = buildPlanMyWeekInputs(
+    [
+      item({
+        id: "mom",
+        title: "Visit mom",
+        flexibility: "Fixed",
+        fixed_start_time: "13:00",
+        estimated_minutes: 180,
+        preferred_days: ["wednesday"],
+      }),
+    ],
+    [blocking],
+    WEEK,
+    TODAY,
+    NOW,
+  );
+  assert.equal(result.inputs.length, 0);
+});
+
+test("the day can start at 6:00 instead of 7:00", () => {
+  const early = new Date(2026, 9, 13, 6, 10, 0, 0);
+  const result = buildPlanMyWeekInputs(
+    [item({ id: "walk", title: "Walk", flexibility: "Flexible anytime", estimated_minutes: 30, times_per_period: 1 })],
+    [],
+    WEEK,
+    TODAY,
+    { now: early, dayStartMin: 6 * 60 },
+  );
+  const todayTask = result.inputs.find((t) => t.scheduled_date === TODAY);
+  assert.ok(todayTask);
+  assert.equal(todayTask?.scheduled_time_start, "06:10");
 });
 
 test("occurrences on the same day do not overlap", () => {

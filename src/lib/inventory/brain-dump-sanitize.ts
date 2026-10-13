@@ -167,6 +167,10 @@ export function sanitizeBrainDumpItem(raw: unknown): BrainDumpItemDraft | null {
     completed_count: 0,
     preferred_days,
     preferred_time_of_day,
+    fixed_start_time:
+      typeof o.fixed_start_time === "string" && /^([01]\d|2[0-3]):[0-5]\d$/.test(o.fixed_start_time)
+        ? o.fixed_start_time
+        : null,
     estimated_minutes,
     priority,
     flexibility,

@@ -24,6 +24,7 @@ export function itemColumns(
     completed_count: item.completed_count ?? 0,
     preferred_days: item.preferred_days,
     preferred_time_of_day: item.preferred_time_of_day,
+    fixed_start_time: item.fixed_start_time,
     estimated_minutes: item.estimated_minutes,
     priority: item.priority,
     flexibility: item.flexibility,
@@ -66,6 +67,7 @@ type ItemRow = {
   completed_count: number | null;
   preferred_days: string[] | null;
   preferred_time_of_day: Item["preferred_time_of_day"];
+  fixed_start_time: string | null;
   estimated_minutes: number;
   priority: Item["priority"];
   flexibility: Item["flexibility"];
@@ -111,6 +113,7 @@ export function mapItemRow(row: ItemRow): Item {
     completed_count: row.completed_count ?? 0,
     preferred_days: Array.isArray(preferred) ? preferred : null,
     preferred_time_of_day: row.preferred_time_of_day,
+    fixed_start_time: row.fixed_start_time,
     estimated_minutes: row.estimated_minutes,
     priority: row.priority,
     flexibility: row.flexibility,
