@@ -11,6 +11,7 @@ function item(partial: Partial<Item>): Item {
     type: "recurring",
     frequency_type: "weekly",
     frequency_value: 1,
+    times_per_period: 1,
     preferred_days: ["wednesday"],
     preferred_time_of_day: "morning",
     estimated_minutes: 20,

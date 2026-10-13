@@ -66,6 +66,7 @@ function applyItemToForm(
     setType: (v: ItemType) => void;
     setCadencePreset: (v: CadencePreset) => void;
     setCadenceCustom: (v: string) => void;
+    setTimesPerPeriod: (v: string) => void;
     setEstimatedDuration: (v: string) => void;
     setPriority: (v: ItemPriority) => void;
     setFlexibility: (v: ItemFlexibility) => void;
@@ -80,6 +81,7 @@ function applyItemToForm(
     setType,
     setCadencePreset,
     setCadenceCustom,
+    setTimesPerPeriod,
     setEstimatedDuration,
     setPriority,
     setFlexibility,
@@ -108,6 +110,7 @@ function applyItemToForm(
     setCadencePreset("weekly");
     setCadenceCustom("");
   }
+  setTimesPerPeriod(String(item.times_per_period ?? 1));
 }
 
 function resetEmptyForm(setters: Parameters<typeof applyItemToForm>[1]) {
@@ -116,6 +119,7 @@ function resetEmptyForm(setters: Parameters<typeof applyItemToForm>[1]) {
   setters.setType("recurring");
   setters.setCadencePreset("weekly");
   setters.setCadenceCustom("");
+  setters.setTimesPerPeriod("1");
   setters.setEstimatedDuration("30 min");
   setters.setPriority("Standard");
   setters.setFlexibility("Fixed");
@@ -152,6 +156,7 @@ export function ItemForm({
   const [type, setType] = useState<ItemType>("recurring");
   const [cadencePreset, setCadencePreset] = useState<CadencePreset>("weekly");
   const [cadenceCustom, setCadenceCustom] = useState("");
+  const [timesPerPeriod, setTimesPerPeriod] = useState("1");
   const [estimatedDuration, setEstimatedDuration] = useState("30 min");
   const [priority, setPriority] = useState<ItemPriority>("Standard");
   const [flexibility, setFlexibility] = useState<ItemFlexibility>("Fixed");
@@ -169,6 +174,7 @@ export function ItemForm({
         setType,
         setCadencePreset,
         setCadenceCustom,
+        setTimesPerPeriod,
         setEstimatedDuration,
         setPriority,
         setFlexibility,
@@ -183,6 +189,7 @@ export function ItemForm({
         setType,
         setCadencePreset,
         setCadenceCustom,
+        setTimesPerPeriod,
         setEstimatedDuration,
         setPriority,
         setFlexibility,
@@ -223,6 +230,11 @@ export function ItemForm({
     if (parsedEstimatedMinutes == null) return;
 
     const customNotes = cadencePreset === "custom" ? cadenceCustom.trim() : null;
+    const parsedTimes = Number(timesPerPeriod);
+    const times_per_period =
+      type === "one_off" || !Number.isFinite(parsedTimes)
+        ? 1
+        : Math.min(14, Math.max(1, Math.round(parsedTimes)));
     const nowISO = new Date().toISOString();
     const preferred_days = parsePreferredDaysInput(preferredDaysText);
 
@@ -250,6 +262,7 @@ export function ItemForm({
           type,
           frequency_type: frequency.frequency_type,
           frequency_value: frequency.frequency_value,
+          times_per_period,
           preferred_days,
           estimated_minutes: parsedEstimatedMinutes,
           priority,
@@ -269,6 +282,7 @@ export function ItemForm({
           type,
           frequency_type: frequency.frequency_type,
           frequency_value: frequency.frequency_value,
+          times_per_period,
           preferred_days,
           preferred_time_of_day: null,
           estimated_minutes: parsedEstimatedMinutes,
@@ -377,6 +391,23 @@ export function ItemForm({
                 disabled={disabled}
                 className="w-full rounded-[10px] border border-border bg-surface-raised px-4 py-3 text-base text-ink shadow-sm outline-none placeholder:text-ink-faint focus:border-accent/40 focus:ring-2 focus:ring-accent/15 disabled:opacity-60"
               />
+            )}
+            {type !== "one_off" && (
+              <label className="block">
+                <span className="mb-1 block text-xs text-ink-muted">Times per period</span>
+                <input
+                  inputMode="numeric"
+                  value={timesPerPeriod}
+                  onChange={(e) => setTimesPerPeriod(e.target.value)}
+                  disabled={disabled}
+                  className="w-full rounded-[10px] border border-border bg-surface-raised px-4 py-3 text-base text-ink shadow-sm outline-none focus:border-accent/40 focus:ring-2 focus:ring-accent/15 disabled:opacity-60"
+                />
+                <span className="mt-1.5 block text-xs text-ink-muted">
+                  {cadencePreset === "daily"
+                    ? "How many times each day. 1 is once a day."
+                    : "How many times each week or month. 3 on a weekly item is three separate tasks."}
+                </span>
+              </label>
             )}
           </div>
         </Field>

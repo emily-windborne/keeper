@@ -7,7 +7,7 @@ import { useParams, useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { ItemForm } from "@/components/inventory/ItemForm";
 import type { Item } from "@/data/inventory-mock";
-import { mapItemRow } from "@/lib/db/map-rows";
+import { itemToUpdateRow, mapItemRow } from "@/lib/db/map-rows";
 
 export default function EditInventoryItemPage() {
   const params = useParams();
@@ -58,25 +58,7 @@ export default function EditInventoryItemPage() {
     const nowISO = new Date().toISOString();
     const { error: updateError } = await supabase
       .from("items")
-      .update({
-        title: updated.title,
-        category: updated.category,
-        type: updated.type,
-        frequency_type: updated.frequency_type,
-        frequency_value: updated.frequency_value,
-        preferred_days: updated.preferred_days,
-        preferred_time_of_day: updated.preferred_time_of_day,
-        estimated_minutes: updated.estimated_minutes,
-        priority: updated.priority,
-        flexibility: updated.flexibility,
-        cadence_pressure: updated.cadence_pressure,
-        minimum_success_threshold: updated.minimum_success_threshold,
-        notes: updated.notes,
-        is_archived: updated.is_archived,
-        last_completed_at: updated.last_completed_at,
-        next_due_date: updated.next_due_date,
-        updated_at: nowISO,
-      })
+      .update(itemToUpdateRow(updated, nowISO))
       .eq("id", updated.id)
       .select()
       .single();

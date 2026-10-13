@@ -316,6 +316,13 @@ function sortDaysForPlacement(indices: number[], loads: number[], ideal: number)
  * Try to place `item` on one of `dayIndices` (in try order). Mutates `dayIntervals`, `loads`, appends to `outputs`.
  * Returns true if placed.
  */
+/** How many copies of this item belong in one period (a day, if it is daily). */
+export function timesPerPeriod(item: Item): number {
+  const n = item.times_per_period ?? 1;
+  if (!Number.isFinite(n)) return 1;
+  return Math.min(14, Math.max(1, Math.round(n)));
+}
+
 function tryPlaceOnDays(
   item: Item,
   dayIndices: number[],
@@ -325,7 +332,7 @@ function tryPlaceOnDays(
   dayIntervals: Map<string, { start: number; end: number }[]>,
   loads: number[],
   outputs: NewPlannedTaskInput[],
-): boolean {
+): string | null {
   const dur = Math.max(1, item.estimated_minutes);
   const ordered = [...dayIndices];
 
@@ -355,9 +362,9 @@ function tryPlaceOnDays(
       priority_override: null,
       notes: null,
     });
-    return true;
+    return dateISO;
   }
-  return false;
+  return null;
 }
 
 /**
@@ -381,9 +388,13 @@ export function buildPlanMyWeekInputs(
   const weekSet = new Set(weekDayISOs);
   const itemById = new Map(items.map((i) => [i.id, i]));
 
-  const existingItemIds = new Set<string>();
+  const countInWeek = new Map<string, number>();
+  const countOnDay = new Map<string, number>();
   for (const t of existingPlanned) {
-    if (weekSet.has(t.scheduled_date)) existingItemIds.add(t.item_id);
+    if (!weekSet.has(t.scheduled_date)) continue;
+    countInWeek.set(t.item_id, (countInWeek.get(t.item_id) ?? 0) + 1);
+    const key = `${t.item_id}|${t.scheduled_date}`;
+    countOnDay.set(key, (countOnDay.get(key) ?? 0) + 1);
   }
 
   const eligible = items.filter((item) => {
@@ -391,9 +402,7 @@ export function buildPlanMyWeekInputs(
     return isDueByEndOfWeek(item, weekEndISO);
   });
 
-  const candidates = eligible.filter((item) => !existingItemIds.has(item.id));
-
-  const sorted = [...candidates].sort((a, b) => {
+  const sorted = [...eligible].sort((a, b) => {
     const p = PRIORITY_ORDER[a.priority] - PRIORITY_ORDER[b.priority];
     if (p !== 0) return p;
     const c = CADENCE_ORDER[a.cadence_pressure] - CADENCE_ORDER[b.cadence_pressure];
@@ -468,25 +477,95 @@ export function buildPlanMyWeekInputs(
 
     if (allowed.length === 0) continue;
 
-    const idealClamped = allowed.reduce((best, i) => {
+    const times = timesPerPeriod(item);
+    const pref = preferredDayIndices(weekDayISOs, item.preferred_days);
+    const spreadAcrossWeek =
+      item.frequency_type === "daily" || (times > 1 && !usesHardPreferredDays(item));
+    const placeDays = spreadAcrossWeek
+      ? weekDayISOs
+          .map((_, i) => i)
+          .filter((i) => (weekDayISOs[i] ?? "") >= todayISO && (!pref || pref.has(i)))
+      : allowed.filter((i) => (weekDayISOs[i] ?? "") >= todayISO);
+    if (placeDays.length === 0) continue;
+
+    const idealClamped = placeDays.reduce((best, i) => {
       const da = Math.abs(i - ideal);
       const db = Math.abs(best - ideal);
       return da < db ? i : best;
-    }, allowed[0]!);
+    }, placeDays[0]!);
 
-    const primaryTry = sortDaysForPlacement(allowed, loads, idealClamped);
-    let placed = tryPlaceOnDays(item, primaryTry, weekDayISOs, todayISO, now, dayIntervals, loads, outputs);
+    const before = outputs.length;
 
-    if (
-      !placed &&
-      item.cadence_pressure === "Can defer" &&
-      !usesHardPreferredDays(item)
-    ) {
-      const fallback = sortDaysForPlacement(allDayIndices, loads, idealClamped);
-      placed = tryPlaceOnDays(item, fallback, weekDayISOs, todayISO, now, dayIntervals, loads, outputs);
+    if (item.frequency_type === "daily") {
+      for (const dayIdx of placeDays) {
+        const iso = weekDayISOs[dayIdx]!;
+        if (iso < todayISO) continue;
+        const have = countOnDay.get(`${item.id}|${iso}`) ?? 0;
+        let need = times - have;
+        while (need > 0) {
+          const placedIso = tryPlaceOnDays(
+            item,
+            [dayIdx],
+            weekDayISOs,
+            todayISO,
+            now,
+            dayIntervals,
+            loads,
+            outputs,
+          );
+          if (!placedIso) break;
+          countOnDay.set(`${item.id}|${placedIso}`, (countOnDay.get(`${item.id}|${placedIso}`) ?? 0) + 1);
+          need -= 1;
+        }
+      }
+      continue;
     }
 
-    if (!placed && usesHardPreferredDays(item)) {
+    const have = countInWeek.get(item.id) ?? 0;
+    let need = times - have;
+    const usedDays = new Set<number>();
+    while (need > 0) {
+      const fresh = placeDays.filter((i) => !usedDays.has(i));
+      const tryIdx = fresh.length > 0 ? fresh : placeDays;
+      const primaryTry = sortDaysForPlacement(tryIdx, loads, idealClamped);
+      let placedIso = tryPlaceOnDays(
+        item,
+        primaryTry,
+        weekDayISOs,
+        todayISO,
+        now,
+        dayIntervals,
+        loads,
+        outputs,
+      );
+      if (
+        !placedIso &&
+        item.cadence_pressure === "Can defer" &&
+        !usesHardPreferredDays(item)
+      ) {
+        const fallback = sortDaysForPlacement(
+          allDayIndices.filter((i) => fresh.length === 0 || !usedDays.has(i)),
+          loads,
+          idealClamped,
+        );
+        placedIso = tryPlaceOnDays(
+          item,
+          fallback.length ? fallback : allDayIndices,
+          weekDayISOs,
+          todayISO,
+          now,
+          dayIntervals,
+          loads,
+          outputs,
+        );
+      }
+      if (!placedIso) break;
+      const idx = weekDayISOs.indexOf(placedIso);
+      if (idx >= 0) usedDays.add(idx);
+      need -= 1;
+    }
+
+    if (outputs.length === before && need > 0 && usesHardPreferredDays(item) && have === 0) {
       const prefLower = new Set(item.preferred_days!.map((p) => p.trim().toLowerCase()));
       const afterWeek = addDaysToISO(weekEndISO, 1);
       const nextDueISO =

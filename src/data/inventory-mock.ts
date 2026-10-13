@@ -5,6 +5,8 @@ export type Item = {
   type: "recurring" | "one_off" | "goal";
   frequency_type: "daily" | "weekly" | "biweekly" | "monthly" | "custom" | null;
   frequency_value: number | null; // e.g. every 1.5 months = 1.5
+  /** How many times inside one period. Daily: per day. Weekly: per week. */
+  times_per_period: number;
   preferred_days: string[] | null; // e.g. ['wednesday']
   preferred_time_of_day: "morning" | "afternoon" | "evening" | "anytime" | null;
   estimated_minutes: number;

@@ -15,7 +15,7 @@ Open [http://localhost:3000](http://localhost:3000). The default route is **Plan
 
 ### Database
 
-Run the SQL files in `supabase/migrations` in filename order in the Supabase SQL editor. If the first schema is already applied, run each newer file once. `002_apply_plan_my_week.sql` lets Plan my week save the whole week in one step.
+Run the SQL files in `supabase/migrations` in filename order in the Supabase SQL editor. If the first schema is already applied, run each newer file once. `002_apply_plan_my_week.sql` lets Plan my week save the whole week in one step. `003_times_per_period.sql` stores how many times an item happens in each day or week.
 
 ### Hot reload / Fast Refresh
 
