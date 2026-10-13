@@ -3,10 +3,13 @@
 import type { Item } from "@/data/inventory-mock";
 import type { PlannedTask } from "@/lib/db/map-rows";
 import { CategoryIcon } from "@/components/CategoryIcon";
-import { timeStartToHour } from "@/components/planner/planner-view-utils";
+import { consumeBackgroundClick, DragBlock } from "@/components/planner/DragBlock";
+import { timeStartToHour, parseTimeToMinutesSinceMidnight } from "@/components/planner/planner-view-utils";
+import { minutesFromPointerY, minutesToHHMM, TIMELINE_END_MIN, TIMELINE_START_MIN } from "@/lib/planner/time-snap";
 
 const DAY_START_HOUR = 6;
-const DAY_END_HOUR = 22;
+const DAY_END_HOUR = 23;
+const HOUR_PX = 64;
 
 function displayedDurationMinutes(task: PlannedTask, item: Item): number {
   if (task.scheduled_time_start && task.scheduled_time_end) {
@@ -27,20 +30,25 @@ function formatHourLabel(hour: number): string {
 export function PlannerDayView({
   tasks,
   itemById,
+  dateISO,
   onOpenTask,
+  onCommitSchedule,
+  onCreateAt,
 }: {
   tasks: PlannedTask[];
   itemById: Map<string, Item>;
+  dateISO: string;
   onOpenTask: (taskId: string) => void;
+  onCommitSchedule: (
+    taskId: string,
+    patch: { scheduled_date: string; scheduled_time_start: string; scheduled_time_end: string },
+  ) => void;
+  onCreateAt: (dateISO: string, timeHHMM: string) => void;
 }) {
   const anchors = tasks.filter((task) => itemById.get(task.item_id)?.type === "anchor");
   const blocks = tasks.filter((task) => itemById.get(task.item_id)?.type !== "anchor");
   const noTime: PlannedTask[] = [];
   const outsideWindow: PlannedTask[] = [];
-  const byHour = new Map<number, PlannedTask[]>();
-  for (let h = DAY_START_HOUR; h <= DAY_END_HOUR; h++) {
-    byHour.set(h, []);
-  }
 
   for (const task of blocks) {
     const hour = timeStartToHour(task.scheduled_time_start);
@@ -48,14 +56,9 @@ export function PlannerDayView({
       noTime.push(task);
     } else if (hour < DAY_START_HOUR || hour > DAY_END_HOUR) {
       outsideWindow.push(task);
-    } else {
-      byHour.get(hour)!.push(task);
     }
   }
 
-  for (const list of byHour.values()) {
-    list.sort((a, b) => (a.scheduled_time_start ?? "").localeCompare(b.scheduled_time_start ?? ""));
-  }
   noTime.sort((a, b) => a.title_snapshot.localeCompare(b.title_snapshot));
   outsideWindow.sort((a, b) => (a.scheduled_time_start ?? "").localeCompare(b.scheduled_time_start ?? ""));
 
@@ -115,13 +118,19 @@ export function PlannerDayView({
     );
   }
 
-  if (blocks.length === 0 && anchors.length === 0) {
-    return (
-      <p className="rounded-[14px] border border-dashed border-border bg-surface-alt/60 px-4 py-10 text-center text-[13px] text-ink-muted">
-        No planned tasks for this day yet.
-      </p>
-    );
-  }
+  const timelineHeight = ((TIMELINE_END_MIN - TIMELINE_START_MIN) / 60) * HOUR_PX;
+  const timedBlocks = blocks.flatMap((task) => {
+    const item = itemById.get(task.item_id);
+    const start = task.scheduled_time_start
+      ? parseTimeToMinutesSinceMidnight(task.scheduled_time_start)
+      : null;
+    if (!item || start == null || start < TIMELINE_START_MIN || start >= TIMELINE_END_MIN) return [];
+    const endRaw = task.scheduled_time_end
+      ? parseTimeToMinutesSinceMidnight(task.scheduled_time_end)
+      : null;
+    const end = endRaw != null && endRaw > start ? endRaw : start + Math.max(15, item.estimated_minutes);
+    return [{ task, item, startMin: start, endMin: Math.min(TIMELINE_END_MIN, end) }];
+  });
 
   return (
     <div className="flex flex-col gap-6">
@@ -175,29 +184,84 @@ export function PlannerDayView({
         </section>
       )}
 
-      <div className="flex flex-col gap-0">
-        {Array.from({ length: DAY_END_HOUR - DAY_START_HOUR + 1 }, (_, i) => DAY_START_HOUR + i).map(
-          (hour) => {
-            const slotTasks = byHour.get(hour) ?? [];
-            return (
+      {blocks.length === 0 && anchors.length === 0 ? (
+        <p className="rounded-[14px] border border-dashed border-border bg-surface-alt/60 px-4 py-6 text-center text-[13px] text-ink-muted">
+          Nothing here yet. Tap an open time to add something.
+        </p>
+      ) : null}
+
+      <div className="grid grid-cols-[3.5rem_1fr] gap-2 sm:grid-cols-[4.5rem_1fr]">
+        <div className="relative" style={{ height: timelineHeight }}>
+          {Array.from({ length: DAY_END_HOUR - DAY_START_HOUR + 1 }, (_, i) => DAY_START_HOUR + i).map(
+            (hour) => (
               <div
                 key={hour}
-                className="grid grid-cols-[3.5rem_1fr] gap-2 border-b border-border/60 py-3 last:border-b-0 sm:grid-cols-[4.5rem_1fr] sm:gap-4"
+                className="absolute right-0 text-right text-[11px] font-medium tabular-nums text-ink-muted sm:text-[12px]"
+                style={{ top: (hour - DAY_START_HOUR) * HOUR_PX }}
               >
-                <div className="pt-1 text-right text-[11px] font-medium tabular-nums text-ink-muted sm:text-[12px]">
-                  {formatHourLabel(hour)}
-                </div>
-                <div className="min-w-0">
-                  {slotTasks.length === 0 ? (
-                    <p className="py-1 text-[12px] text-ink-faint sm:text-[13px]">—</p>
-                  ) : (
-                    <ul className="flex flex-col gap-2">{slotTasks.map((t) => renderTaskCard(t))}</ul>
-                  )}
-                </div>
+                {formatHourLabel(hour)}
               </div>
+            ),
+          )}
+        </div>
+        <div
+          data-day-column={dateISO}
+          className="relative rounded-[14px] border border-border/70 bg-surface-raised"
+          style={{ height: timelineHeight }}
+          onClick={(event) => {
+            if (consumeBackgroundClick()) return;
+            if ((event.target as HTMLElement).closest("[data-task]")) return;
+            const rect = event.currentTarget.getBoundingClientRect();
+            const minutes = minutesFromPointerY(
+              event.clientY - rect.top,
+              rect.height,
+              TIMELINE_START_MIN,
+              TIMELINE_END_MIN,
             );
-          },
-        )}
+            onCreateAt(dateISO, minutesToHHMM(minutes));
+          }}
+        >
+          {Array.from({ length: DAY_END_HOUR - DAY_START_HOUR + 1 }, (_, i) => (
+            <div
+              key={i}
+              className="pointer-events-none absolute left-0 right-0 border-t border-border/50"
+              style={{ top: i * HOUR_PX }}
+            />
+          ))}
+          {timedBlocks.map(({ task, item, startMin, endMin }) => {
+            const top = ((startMin - TIMELINE_START_MIN) / 60) * HOUR_PX;
+            const height = Math.max(44, ((endMin - startMin) / 60) * HOUR_PX);
+            const editable = task.status !== "done" && task.status !== "skipped";
+            return (
+              <DragBlock
+                key={task.id}
+                enabled={editable}
+                canResize={editable}
+                startMin={startMin}
+                endMin={endMin}
+                hourPx={HOUR_PX}
+                dateISO={dateISO}
+                ariaLabel={`${task.title_snapshot}, ${task.scheduled_time_start ?? ""}. Drag to move, or drag the gold bar to change the length.`}
+                className="absolute left-1 right-1 z-[5] overflow-hidden rounded-[12px] border border-border bg-[#f6f4f0] px-2 py-1 text-left shadow-soft"
+                style={{ top, height }}
+                onOpen={() => onOpenTask(task.id)}
+                onCommit={(next) =>
+                  onCommitSchedule(task.id, {
+                    scheduled_date: next.dateISO,
+                    scheduled_time_start: minutesToHHMM(next.startMin),
+                    scheduled_time_end: minutesToHHMM(next.endMin),
+                  })
+                }
+              >
+                <span className="block truncate text-[13px] font-semibold text-ink">{task.title_snapshot}</span>
+                <span className="block text-[11px] text-ink-muted">
+                  {minutesToHHMM(startMin)} to {minutesToHHMM(endMin)}
+                </span>
+                <span className="sr-only">{item.title}</span>
+              </DragBlock>
+            );
+          })}
+        </div>
       </div>
     </div>
   );

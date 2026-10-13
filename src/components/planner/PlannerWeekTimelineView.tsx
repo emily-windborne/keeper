@@ -4,7 +4,9 @@ import { useEffect, useMemo, useState } from "react";
 import type { Item } from "@/data/inventory-mock";
 import type { PlannedTask } from "@/lib/db/map-rows";
 import { CategoryIcon } from "@/components/CategoryIcon";
+import { consumeBackgroundClick, DragBlock } from "@/components/planner/DragBlock";
 import { parseTimeToMinutesSinceMidnight, toISODate } from "@/components/planner/planner-view-utils";
+import { minutesFromPointerY, minutesToHHMM } from "@/lib/planner/time-snap";
 
 const VIEW_BG = "#F7F2EC";
 const SPINE = "#E5DAD0";
@@ -14,8 +16,20 @@ const TEXT_TIME = "rgba(15, 57, 76, 0.4)";
 const TICK = "rgba(229, 218, 208, 0.55)";
 const COMPLETED_CIRCLE_BG = "rgba(15, 57, 76, 0.15)";
 const COMPLETED_ICON_COLOR = "rgba(15, 57, 76, 0.4)";
-/** Capsule fill — barely visible so the icon circle reads clearly. */
-const CAPSULE_BG = "rgba(15, 57, 76, 0.04)";
+const MAX_VISIBLE_LANES = 2;
+
+const CATEGORY_FILL: Record<string, string> = {
+  Home: "rgba(208, 228, 235, 0.95)",
+  Family: "rgba(243, 214, 200, 0.95)",
+  Personal: "rgba(232, 220, 196, 0.95)",
+  Work: "rgba(210, 222, 206, 0.95)",
+  Health: "rgba(240, 212, 216, 0.95)",
+  Upkeep: "rgba(245, 236, 196, 0.95)",
+};
+
+function categoryFill(category: string): string {
+  return CATEGORY_FILL[category] ?? "rgba(246, 244, 240, 0.95)";
+}
 
 const TIMELINE_FIRST_HOUR = 6;
 const TIMELINE_LAST_HOUR = 23;
@@ -26,10 +40,6 @@ const TIMELINE_HEIGHT = HOUR_COUNT * HOUR_PX;
 const UNSCHED_MIN_PX = 36;
 const UNSCHED_PER_CHIP_PX = 28;
 const UNSCHED_BAND_MAX_PX = 96;
-const MIN_PILL_HEIGHT_PX = 14;
-/** Room for top-pinned icon circle (h-9 + pt-1) on very short durations. */
-const MIN_PILL_WITH_ICON_PX = 44;
-
 const timelineStartMin = TIMELINE_FIRST_HOUR * 60;
 const timelineEndMin = 24 * 60;
 const totalTimelineMin = timelineEndMin - timelineStartMin;
@@ -185,15 +195,6 @@ function TimelineColumnIcon({ task, item }: { task: PlannedTask; item: Item }) {
   return <CategoryIcon category={item.category} />;
 }
 
-function pillHeightFromEstimate(item: Item): number {
-  const mins = Math.max(1, item.estimated_minutes);
-  return Math.max(
-    MIN_PILL_HEIGHT_PX,
-    MIN_PILL_WITH_ICON_PX,
-    (mins / 60) * HOUR_PX,
-  );
-}
-
 /** Today's column only: scheduled block has fully ended (start + estimated). */
 function isTimedTaskPastToday(
   columnISO: string,
@@ -221,6 +222,9 @@ export function PlannerWeekTimelineView({
   todayISO,
   onSelectDate,
   onOpenTask,
+  onCommitSchedule,
+  onCreateAt,
+  onOpenDay,
 }: {
   weekDays: Date[];
   plannedTasks: PlannedTask[];
@@ -229,6 +233,12 @@ export function PlannerWeekTimelineView({
   todayISO: string;
   onSelectDate: (iso: string) => void;
   onOpenTask: (taskId: string) => void;
+  onCommitSchedule: (
+    taskId: string,
+    patch: { scheduled_date: string; scheduled_time_start: string; scheduled_time_end: string },
+  ) => void;
+  onCreateAt: (dateISO: string, timeHHMM: string) => void;
+  onOpenDay: (dateISO: string) => void;
 }) {
   const weekISOs = useMemo(() => weekDays.map((d) => toISODate(d)), [weekDays]);
   const { nowMin, nowMs } = usePlannerNow();
@@ -282,21 +292,13 @@ export function PlannerWeekTimelineView({
 
   const timeGutterW = "1.75rem";
 
-  if (!hasAnyTask) {
-    return (
-      <div
-        className="flex w-full max-w-[390px] flex-col items-center justify-center px-4 py-14 text-center"
-        style={{ backgroundColor: VIEW_BG }}
-      >
-        <p className="text-[13px] leading-relaxed" style={{ color: TEXT_MUTED }}>
-          Nothing planned yet. Try Plan my week.
-        </p>
-      </div>
-    );
-  }
-
   return (
     <div className="w-full max-w-[390px]" style={{ backgroundColor: VIEW_BG }}>
+      {!hasAnyTask ? (
+        <p className="px-4 py-3 text-center text-[13px] leading-relaxed" style={{ color: TEXT_MUTED }}>
+          Nothing planned yet. Tap an open time to add something.
+        </p>
+      ) : null}
       {/* Header row */}
       <div className="sticky top-0 z-20 flex" style={{ backgroundColor: VIEW_BG }}>
         <div className="shrink-0" style={{ width: timeGutterW }} aria-hidden />
@@ -379,7 +381,15 @@ export function PlannerWeekTimelineView({
               unscheduled.push({ task, item });
               continue;
             }
-            const durMin = item.type === "anchor" ? 15 : Math.max(1, item.estimated_minutes);
+            const endRaw = task.scheduled_time_end
+              ? parseTimeToMinutesSinceMidnight(task.scheduled_time_end)
+              : null;
+            const durMin =
+              item.type === "anchor"
+                ? 15
+                : endRaw != null && endRaw > startRaw
+                  ? endRaw - startRaw
+                  : Math.max(15, item.estimated_minutes);
             const rangeEnd = startRaw + durMin;
             const startMin = clamp(startRaw, timelineStartMin, timelineEndMin - 1);
             const endForLane = clamp(rangeEnd, startMin + 1, timelineEndMin);
@@ -396,16 +406,33 @@ export function PlannerWeekTimelineView({
           }
 
           const laneMap = buildOverlapLaneMap(timed);
+          const visibleTimed = timed.filter(
+            (entry) => (laneMap.get(entry.task.id)?.lane ?? 0) < MAX_VISIBLE_LANES,
+          );
+          const hiddenCount = timed.length - visibleTimed.length;
           const timelineTop = unschedBandHeight;
           const timelineBottom = timelineTop + TIMELINE_HEIGHT;
 
           return (
             <div
               key={iso}
+              data-day-column={iso}
               className="relative min-w-0 flex-1"
               style={{
                 height: unschedBandHeight + TIMELINE_HEIGHT,
                 backgroundColor: VIEW_BG,
+                opacity: iso < todayISO ? 0.45 : 1,
+              }}
+              onClick={(event) => {
+                if (consumeBackgroundClick()) return;
+                if ((event.target as HTMLElement).closest("[data-task]")) return;
+                const rect = event.currentTarget.getBoundingClientRect();
+                const y = event.clientY - rect.top - timelineTop;
+                if (y < 0) return;
+                onCreateAt(
+                  iso,
+                  minutesToHHMM(minutesFromPointerY(y, TIMELINE_HEIGHT, timelineStartMin, timelineEndMin)),
+                );
               }}
             >
               {/* Unscheduled band */}
@@ -425,7 +452,7 @@ export function PlannerWeekTimelineView({
                       onClick={() => onOpenTask(task.id)}
                       title={task.title_snapshot}
                       className="flex shrink-0 items-center justify-center rounded-full px-0.5 py-0.5 transition-opacity active:opacity-85"
-                      style={{ backgroundColor: CAPSULE_BG }}
+                      style={{ backgroundColor: "rgba(15, 57, 76, 0.04)" }}
                       aria-label={`Task actions for ${task.title_snapshot}, no time set`}
                     >
                       <TimelineColumnIcon task={task} item={item} />
@@ -448,6 +475,20 @@ export function PlannerWeekTimelineView({
                 aria-hidden
               />
 
+              {isTodayCol && nowMin > timelineStartMin && nowMin < timelineEndMin && (
+                <div
+                  className="pointer-events-none absolute left-0 right-0 z-[1]"
+                  style={{
+                    top: timelineTop,
+                    height:
+                      ((Math.min(nowMin, timelineEndMin) - timelineStartMin) / totalTimelineMin) *
+                      TIMELINE_HEIGHT,
+                    backgroundColor: "rgba(15, 57, 76, 0.08)",
+                  }}
+                  aria-hidden
+                />
+              )}
+
               {/* Current time — full column width, today only */}
               {isTodayCol && nowMin >= timelineStartMin && nowMin < timelineEndMin && (
                 <div
@@ -461,61 +502,102 @@ export function PlannerWeekTimelineView({
                 />
               )}
 
-              {markers.map(({ task, startMin }) => {
+              {markers.map(({ task, startMin, endMin }) => {
                 const topRatio = (startMin - timelineStartMin) / totalTimelineMin;
                 const topPx = timelineTop + topRatio * TIMELINE_HEIGHT;
+                const editable = !isCompletedLook(task);
                 return (
-                  <button
+                  <DragBlock
                     key={task.id}
-                    type="button"
-                    onClick={() => onOpenTask(task.id)}
+                    enabled={editable}
+                    canResize={false}
+                    startMin={startMin}
+                    endMin={endMin}
+                    hourPx={HOUR_PX}
+                    dateISO={iso}
+                    weekDates={weekISOs}
+                    ariaLabel={`Routine, ${task.title_snapshot}, ${task.scheduled_time_start ?? ""}. Drag to move it.`}
                     className="absolute left-1/2 z-[6] flex h-11 w-11 -translate-x-1/2 items-center justify-center"
                     style={{ top: topPx - 8 }}
-                    aria-label={`Routine, ${task.title_snapshot}, ${task.scheduled_time_start ?? ""}`}
+                    onOpen={() => onOpenTask(task.id)}
+                    onCommit={(next) =>
+                      onCommitSchedule(task.id, {
+                        scheduled_date: next.dateISO,
+                        scheduled_time_start: minutesToHHMM(next.startMin),
+                        scheduled_time_end: minutesToHHMM(next.endMin),
+                      })
+                    }
                   >
-                    <span
-                      className="h-2.5 w-2.5 rounded-full border border-[#caa510] bg-[#f5ecc4]"
-                      title={task.title_snapshot}
-                    />
-                  </button>
+                    <span className="h-2.5 w-2.5 rounded-full border border-[#caa510] bg-[#f5ecc4]" title={task.title_snapshot} />
+                  </DragBlock>
                 );
               })}
 
+              {hiddenCount > 0 ? (
+                <button
+                  type="button"
+                  className="absolute left-0 right-0 z-30 flex h-11 items-center justify-center px-0.5 text-center text-[10px] font-semibold leading-tight text-[#0f394c]"
+                  style={{ top: timelineTop }}
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    onOpenDay(iso);
+                  }}
+                  aria-label={`${hiddenCount} more on this day`}
+                >
+                  +{hiddenCount} more
+                </button>
+              ) : null}
+
               {/* Timed pills on spine */}
-              {timed.map(({ task, item, startMin }) => {
+              {visibleTimed.map(({ task, item, startMin, endMin }) => {
                 const topRatio = (startMin - timelineStartMin) / totalTimelineMin;
                 const topPx = timelineTop + topRatio * TIMELINE_HEIGHT;
-                let heightPx = pillHeightFromEstimate(item);
+                const durationMin = Math.max(15, endMin - startMin);
+                let heightPx = Math.max(44, (durationMin / 60) * HOUR_PX);
                 heightPx = Math.min(heightPx, timelineBottom - topPx);
 
                 const layout = laneMap.get(task.id) ?? { lane: 0, laneCount: 1 };
-                const { lane, laneCount } = layout;
-                const { widthPct, gapPct } = horizontalLayoutForLaneCount(laneCount);
-                const leftPct = leftPctForLane(lane, widthPct, gapPct);
+                const shownLanes = Math.min(layout.laneCount, MAX_VISIBLE_LANES);
+                const { widthPct, gapPct } = horizontalLayoutForLaneCount(shownLanes);
+                const leftPct = leftPctForLane(layout.lane, widthPct, gapPct);
 
                 const completed = isCompletedLook(task);
                 const pastRecede =
                   !completed && isTimedTaskPastToday(iso, todayISO, task, item, nowMs);
+                const editable = !completed;
 
                 return (
-                  <button
+                  <DragBlock
                     key={task.id}
-                    type="button"
-                    onClick={() => onOpenTask(task.id)}
-                    className="absolute z-[5] flex flex-col items-center justify-start border-0 pt-1 transition-opacity active:opacity-90"
+                    enabled={editable}
+                    canResize={editable}
+                    startMin={startMin}
+                    endMin={startMin + durationMin}
+                    hourPx={HOUR_PX}
+                    dateISO={iso}
+                    weekDates={weekISOs}
+                    ariaLabel={`${task.title_snapshot}, ${task.scheduled_time_start ?? ""}. Drag to move, or drag the gold bar to change the length.`}
+                    className="absolute z-[5] flex flex-col items-center justify-start border-0 pt-1"
                     style={{
                       top: topPx,
                       left: `${leftPct}%`,
                       width: `${widthPct}%`,
                       height: heightPx,
                       borderRadius: 9999,
-                      backgroundColor: CAPSULE_BG,
+                      backgroundColor: categoryFill(item.category),
                       opacity: pastRecede ? 0.4 : 1,
                     }}
-                    aria-label={`${task.title_snapshot}, ${task.scheduled_time_start ?? ""}`}
+                    onOpen={() => onOpenTask(task.id)}
+                    onCommit={(next) =>
+                      onCommitSchedule(task.id, {
+                        scheduled_date: next.dateISO,
+                        scheduled_time_start: minutesToHHMM(next.startMin),
+                        scheduled_time_end: minutesToHHMM(next.endMin),
+                      })
+                    }
                   >
                     <TimelineColumnIcon task={task} item={item} />
-                  </button>
+                  </DragBlock>
                 );
               })}
             </div>
