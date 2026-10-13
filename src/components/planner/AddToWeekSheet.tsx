@@ -16,12 +16,14 @@ export function AddToWeekSheet({
   selectedDateISO,
   onAdd,
   onQuickAdd,
+  initialTime,
 }: {
   open: boolean;
   onClose: () => void;
   weekDays: Date[];
   items: Item[];
   selectedDateISO: string;
+  initialTime?: string | null;
   onAdd: (task: NewPlannedTaskInput) => void | Promise<void>;
   onQuickAdd: (payload: {
     title: string;
@@ -46,9 +48,9 @@ export function AddToWeekSheet({
     setQuery("");
     setSelectedItemId(null);
     setAssignedDateISO(selectedDateISO);
-    setTimeStart("");
+    setTimeStart(initialTime ?? "");
     setDurationMinutes("");
-  }, [open, selectedDateISO]);
+  }, [open, selectedDateISO, initialTime]);
 
   const selectedItem = useMemo(
     () => items.find((i) => i.id === selectedItemId) ?? null,

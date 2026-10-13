@@ -221,6 +221,7 @@ export function PlannerScreen() {
   );
 
   const [addOpen, setAddOpen] = useState(false);
+  const [addTime, setAddTime] = useState<string | null>(null);
   const [refiningChip, setRefiningChip] = useState<string | null>(null);
   const [schedulePreview, setSchedulePreview] = useState<{
     title: string;
@@ -957,6 +958,7 @@ export function PlannerScreen() {
       scheduled_time_end: string | null;
       notes: string | null;
     },
+    options?: { quiet?: boolean },
   ): Promise<boolean> {
     const current = plannedTasks.find((t) => t.id === taskId);
     const conflict = scheduleConflict(
@@ -982,8 +984,10 @@ export function PlannerScreen() {
     setPlannedTasks((prev) =>
       prev.map((t) => (t.id === taskId ? { ...t, ...patch, updated_at: nowISO } : t)),
     );
-    setToast({ id: createId(), message: "Saved this event." });
-    router.refresh();
+    if (!options?.quiet) {
+      setToast({ id: createId(), message: "Saved this event." });
+      router.refresh();
+    }
     return true;
   }
 
@@ -1304,7 +1308,21 @@ export function PlannerScreen() {
                 <PlannerDayView
                   tasks={selectedDayTasks}
                   itemById={itemById}
+                  dateISO={selectedDateISO}
                   onOpenTask={openTaskActions}
+                  onCommitSchedule={(taskId, patch) => {
+                    const task = plannedTasks.find((row) => row.id === taskId);
+                    void savePlannedTaskInstance(
+                      taskId,
+                      { ...patch, notes: task?.notes ?? null },
+                      { quiet: true },
+                    );
+                  }}
+                  onCreateAt={(date, time) => {
+                    setSelectedDateISO(date);
+                    setAddTime(time);
+                    setAddOpen(true);
+                  }}
                 />
               ) : plannerView === "week" ? (
                 <div className="flex w-full justify-center">
@@ -1316,6 +1334,23 @@ export function PlannerScreen() {
                     todayISO={todayISO}
                     onSelectDate={jumpPlannerToDate}
                     onOpenTask={openTaskActions}
+                    onCommitSchedule={(taskId, patch) => {
+                      const task = plannedTasks.find((row) => row.id === taskId);
+                      void savePlannedTaskInstance(
+                        taskId,
+                        { ...patch, notes: task?.notes ?? null },
+                        { quiet: true },
+                      );
+                    }}
+                    onCreateAt={(date, time) => {
+                      jumpPlannerToDate(date);
+                      setAddTime(time);
+                      setAddOpen(true);
+                    }}
+                    onOpenDay={(date) => {
+                      jumpPlannerToDate(date);
+                      setPlannerView("day");
+                    }}
                   />
                 </div>
               ) : (
@@ -1365,7 +1400,10 @@ export function PlannerScreen() {
 
       <button
         type="button"
-        onClick={() => setAddOpen(true)}
+        onClick={() => {
+          setAddTime(null);
+          setAddOpen(true);
+        }}
         className="fixed bottom-[calc(7rem+max(0px,env(safe-area-inset-bottom,0px)-0.75rem))] right-5 z-40 flex h-14 w-14 items-center justify-center rounded-full bg-accent text-surface-raised shadow-[0_4px_14px_rgba(202,165,16,0.35)] transition-transform hover:scale-[1.02] active:scale-[0.98] sm:right-8"
         aria-label="Add planned task"
       >
@@ -1381,9 +1419,13 @@ export function PlannerScreen() {
 
       <AddToWeekSheet
         open={addOpen}
-        onClose={() => setAddOpen(false)}
+        onClose={() => {
+          setAddOpen(false);
+          setAddTime(null);
+        }}
         weekDays={weekDays}
         selectedDateISO={selectedDateISO}
+        initialTime={addTime}
         items={items}
         onAdd={(input) => void handleAddPlannedTask(input)}
         onQuickAdd={(payload) => void handleQuickAddPlannedTask(payload)}
