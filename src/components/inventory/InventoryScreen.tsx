@@ -12,7 +12,7 @@ import { type Item, type ItemCategory } from "@/data/inventory-mock";
 import { itemToInsertRow, mapItemRow, mapPlannedTaskRow, plannedTaskToInsertRow, type PlannedTask } from "@/lib/db/map-rows";
 import { clearPendingItemDelete, readPendingItemDelete, type PendingItemDelete } from "@/lib/inventory/pending-delete";
 
-type FilterId = "all" | "archived" | "recurring" | "one_off" | "goal" | ItemCategory;
+type FilterId = "all" | "archived" | "recurring" | "one_off" | "goal" | "anchor" | ItemCategory;
 
 const FILTERS: { id: FilterId; label: string }[] = [
   { id: "all", label: "All" },
@@ -20,6 +20,7 @@ const FILTERS: { id: FilterId; label: string }[] = [
   { id: "recurring", label: "Recurring" },
   { id: "one_off", label: "One-off" },
   { id: "goal", label: "Goals" },
+  { id: "anchor", label: "Routine" },
   { id: "Home", label: "Home" },
   { id: "Family", label: "Family" },
   { id: "Personal", label: "Personal" },
@@ -39,6 +40,7 @@ function matchesFilter(item: Item, filter: FilterId): boolean {
   if (filter === "recurring") return item.type === "recurring";
   if (filter === "one_off") return item.type === "one_off";
   if (filter === "goal") return item.type === "goal";
+  if (filter === "anchor") return item.type === "anchor";
   return item.category === filter;
 }
 
@@ -287,7 +289,7 @@ export function InventoryScreen() {
                 role="tab"
                 aria-selected={active}
                 onClick={() => setActiveFilter(id)}
-                className={`shrink-0 whitespace-nowrap rounded-full border px-4 py-2 text-[13px] font-medium transition-colors ${
+                className={`min-h-11 shrink-0 whitespace-nowrap rounded-full border px-4 py-2 text-[13px] font-medium transition-colors ${
                   active
                     ? "border-accent/25 bg-surface-alt text-accent shadow-sm"
                     : "border-border bg-surface-raised text-ink-muted shadow-sm hover:border-accent/20 hover:text-ink"
