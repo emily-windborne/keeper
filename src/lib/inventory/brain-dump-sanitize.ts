@@ -154,6 +154,7 @@ export function sanitizeBrainDumpItem(raw: unknown): BrainDumpItemDraft | null {
     cadence_pressure,
     minimum_success_threshold,
     notes,
+    times_per_period: Math.min(14, Math.max(1, Math.round(num(o.times_per_period, 1)))),
     is_archived: false,
     last_completed_at: null,
     next_due_date: null,

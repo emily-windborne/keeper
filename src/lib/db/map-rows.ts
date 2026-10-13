@@ -1,6 +1,36 @@
 import type { Item } from "@/data/inventory-mock";
 import { withInitialNextDueDateIfNeeded } from "@/lib/inventory/compute-next-due";
 
+export function clampTimesPerPeriod(value: number | null | undefined): number {
+  const n = typeof value === "number" ? value : Number(value);
+  if (!Number.isFinite(n)) return 1;
+  return Math.min(14, Math.max(1, Math.round(n)));
+}
+
+export function itemColumns(
+  item: Omit<Item, "id" | "created_at" | "updated_at">,
+): Record<string, unknown> {
+  return {
+    title: item.title,
+    category: item.category,
+    type: item.type,
+    frequency_type: item.frequency_type,
+    frequency_value: item.frequency_value,
+    times_per_period: clampTimesPerPeriod(item.times_per_period),
+    preferred_days: item.preferred_days,
+    preferred_time_of_day: item.preferred_time_of_day,
+    estimated_minutes: item.estimated_minutes,
+    priority: item.priority,
+    flexibility: item.flexibility,
+    cadence_pressure: item.cadence_pressure,
+    minimum_success_threshold: item.minimum_success_threshold,
+    notes: item.notes,
+    is_archived: item.is_archived,
+    last_completed_at: item.last_completed_at,
+    next_due_date: item.next_due_date,
+  };
+}
+
 export type PlannedTask = {
   id: string;
   item_id: string;
@@ -23,6 +53,7 @@ type ItemRow = {
   type: Item["type"];
   frequency_type: Item["frequency_type"];
   frequency_value: number | null;
+  times_per_period: number | null;
   preferred_days: string[] | null;
   preferred_time_of_day: Item["preferred_time_of_day"];
   estimated_minutes: number;
@@ -62,6 +93,7 @@ export function mapItemRow(row: ItemRow): Item {
     type: row.type,
     frequency_type: row.frequency_type,
     frequency_value: row.frequency_value,
+    times_per_period: clampTimesPerPeriod(row.times_per_period),
     preferred_days: Array.isArray(preferred) ? preferred : null,
     preferred_time_of_day: row.preferred_time_of_day,
     estimated_minutes: row.estimated_minutes,
@@ -101,22 +133,14 @@ export function itemToInsertRow(
   const prepared = withInitialNextDueDateIfNeeded(item, new Date().toISOString());
   return {
     user_id: userId,
-    title: prepared.title,
-    category: prepared.category,
-    type: prepared.type,
-    frequency_type: prepared.frequency_type,
-    frequency_value: prepared.frequency_value,
-    preferred_days: prepared.preferred_days,
-    preferred_time_of_day: prepared.preferred_time_of_day,
-    estimated_minutes: prepared.estimated_minutes,
-    priority: prepared.priority,
-    flexibility: prepared.flexibility,
-    cadence_pressure: prepared.cadence_pressure,
-    minimum_success_threshold: prepared.minimum_success_threshold,
-    notes: prepared.notes,
-    is_archived: prepared.is_archived,
-    last_completed_at: prepared.last_completed_at,
-    next_due_date: prepared.next_due_date,
+    ...itemColumns(prepared),
+  };
+}
+
+export function itemToUpdateRow(item: Item, nowISO: string): Record<string, unknown> {
+  return {
+    ...itemColumns(item),
+    updated_at: nowISO,
   };
 }
 

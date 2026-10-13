@@ -43,17 +43,14 @@ function matchesFilter(item: Item, filter: FilterId): boolean {
 }
 
 function formatCadence(item: Item): string {
-  const { frequency_type, frequency_value } = item;
+  const { frequency_type } = item;
+  const times = item.times_per_period ?? 1;
   if (!frequency_type) return "Custom";
-  if (frequency_type === "custom") return "Custom";
-  if (frequency_type === "daily") return "Daily";
-  if (frequency_type === "weekly")
-    return frequency_value && frequency_value !== 1 ? `${frequency_value}x/week` : "Weekly";
-  if (frequency_type === "biweekly")
-    return frequency_value && frequency_value !== 1 ? `${frequency_value}x/biweekly` : "Biweekly";
-  if (frequency_type === "monthly")
-    return frequency_value && frequency_value !== 1 ? `${frequency_value}x/month` : "Monthly";
-  return "Custom";
+  if (frequency_type === "daily") return times > 1 ? `${times}x/day` : "Daily";
+  if (frequency_type === "weekly") return times > 1 ? `${times}x/week` : "Weekly";
+  if (frequency_type === "biweekly") return times > 1 ? `${times}x every 2 weeks` : "Biweekly";
+  if (frequency_type === "monthly") return times > 1 ? `${times}x/month` : "Monthly";
+  return times > 1 ? `${times}x` : "Custom";
 }
 
 export function InventoryScreen() {
@@ -104,24 +101,7 @@ export function InventoryScreen() {
     const { data, error } = await supabase
       .from("items")
       .insert(
-        itemToInsertRow(user.id, {
-          title: item.title,
-          category: item.category,
-          type: item.type,
-          frequency_type: item.frequency_type,
-          frequency_value: item.frequency_value,
-          preferred_days: item.preferred_days,
-          preferred_time_of_day: item.preferred_time_of_day,
-          estimated_minutes: item.estimated_minutes,
-          priority: item.priority,
-          flexibility: item.flexibility,
-          cadence_pressure: item.cadence_pressure,
-          minimum_success_threshold: item.minimum_success_threshold,
-          notes: item.notes,
-          is_archived: item.is_archived,
-          last_completed_at: item.last_completed_at,
-          next_due_date: item.next_due_date,
-        }),
+        itemToInsertRow(user.id, item),
       )
       .select()
       .single();
