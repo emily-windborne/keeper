@@ -4,9 +4,15 @@ export type Item = {
   category: "Home" | "Family" | "Personal" | "Work" | "Upkeep" | "Health";
   type: "recurring" | "one_off" | "goal";
   frequency_type: "daily" | "weekly" | "biweekly" | "monthly" | "custom" | null;
-  frequency_value: number | null; // e.g. every 1.5 months = 1.5
+  frequency_value: number | null;
+  /** days, weeks, or months. Null on older rows until they are saved again. */
+  frequency_unit: "days" | "weeks" | "months" | null;
   /** How many times inside one period. Daily: per day. Weekly: per week. */
   times_per_period: number;
+  recurrence_end: "never" | "on_date" | "after_count";
+  recurrence_end_date: string | null;
+  recurrence_end_count: number | null;
+  completed_count: number;
   preferred_days: string[] | null; // e.g. ['wednesday']
   preferred_time_of_day: "morning" | "afternoon" | "evening" | "anytime" | null;
   estimated_minutes: number;

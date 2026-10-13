@@ -8,10 +8,14 @@ import type {
   ItemCadencePressure,
   ItemPriority,
   ItemType,
-  FrequencyType,
 } from "@/data/inventory-mock";
+import { FrequencyFields, type FrequencyFormValue } from "@/components/inventory/FrequencyFields";
 import { computeInitialNextDueDate } from "@/lib/inventory/compute-next-due";
-import { formatPreferredDays, parsePreferredDaysInput } from "@/lib/inventory/preferred-days";
+import {
+  clampEvery,
+  frequencyTypeForInterval,
+  intervalOf,
+} from "@/lib/inventory/frequency";
 
 const CATEGORY_OPTIONS: ItemCategory[] = [
   "Home",
@@ -50,8 +54,30 @@ const CADENCE_PRESSURE_OPTIONS: {
   { value: "Can defer", label: "Can defer" },
 ];
 
-export type CadencePreset = "daily" | "weekly" | "biweekly" | "monthly" | "custom";
-const CADENCE_PRESETS: CadencePreset[] = ["daily", "weekly", "biweekly", "monthly", "custom"];
+const EMPTY_REPEAT: FrequencyFormValue = {
+  every: "1",
+  unit: "weeks",
+  days: [],
+  end: "never",
+  endDate: "",
+  endCount: "",
+  times: "1",
+  notes: "",
+};
+
+function repeatFromItem(item: Item): FrequencyFormValue {
+  const { unit, every } = intervalOf(item);
+  return {
+    every: String(every),
+    unit,
+    days: item.preferred_days ?? [],
+    end: item.recurrence_end ?? "never",
+    endDate: item.recurrence_end_date?.slice(0, 10) ?? "",
+    endCount: item.recurrence_end_count ? String(item.recurrence_end_count) : "",
+    times: String(item.times_per_period ?? 1),
+    notes: item.notes ?? "",
+  };
+}
 
 function createId(): string {
   if (typeof crypto !== "undefined" && "randomUUID" in crypto) return crypto.randomUUID();
@@ -64,30 +90,24 @@ function applyItemToForm(
     setTitle: (v: string) => void;
     setCategory: (v: ItemCategory) => void;
     setType: (v: ItemType) => void;
-    setCadencePreset: (v: CadencePreset) => void;
-    setCadenceCustom: (v: string) => void;
-    setTimesPerPeriod: (v: string) => void;
+    setRepeat: (v: FrequencyFormValue) => void;
     setEstimatedDuration: (v: string) => void;
     setPriority: (v: ItemPriority) => void;
     setFlexibility: (v: ItemFlexibility) => void;
     setCadencePressure: (v: ItemCadencePressure) => void;
     setMinimumSuccessThreshold: (v: string) => void;
-    setPreferredDaysText: (v: string) => void;
   },
 ) {
   const {
     setTitle,
     setCategory,
     setType,
-    setCadencePreset,
-    setCadenceCustom,
-    setTimesPerPeriod,
+    setRepeat,
     setEstimatedDuration,
     setPriority,
     setFlexibility,
     setCadencePressure,
     setMinimumSuccessThreshold,
-    setPreferredDaysText,
   } = setters;
   setTitle(item.title);
   setCategory(item.category);
@@ -97,35 +117,19 @@ function applyItemToForm(
   setFlexibility(item.flexibility);
   setCadencePressure(item.cadence_pressure);
   setMinimumSuccessThreshold(item.minimum_success_threshold ?? "");
-  setPreferredDaysText(formatPreferredDays(item.preferred_days));
-
-  const ft = item.frequency_type;
-  if (ft === "custom") {
-    setCadencePreset("custom");
-    setCadenceCustom(item.notes?.trim() ? item.notes : String(item.frequency_value ?? ""));
-  } else if (ft === "daily" || ft === "weekly" || ft === "biweekly" || ft === "monthly") {
-    setCadencePreset(ft);
-    setCadenceCustom("");
-  } else {
-    setCadencePreset("weekly");
-    setCadenceCustom("");
-  }
-  setTimesPerPeriod(String(item.times_per_period ?? 1));
+  setRepeat(repeatFromItem(item));
 }
 
 function resetEmptyForm(setters: Parameters<typeof applyItemToForm>[1]) {
   setters.setTitle("");
   setters.setCategory("Home");
   setters.setType("recurring");
-  setters.setCadencePreset("weekly");
-  setters.setCadenceCustom("");
-  setters.setTimesPerPeriod("1");
+  setters.setRepeat(EMPTY_REPEAT);
   setters.setEstimatedDuration("30 min");
   setters.setPriority("Standard");
   setters.setFlexibility("Fixed");
   setters.setCadencePressure("Can slide a little");
   setters.setMinimumSuccessThreshold("");
-  setters.setPreferredDaysText("");
 }
 
 export type ItemFormProps = {
@@ -154,9 +158,7 @@ export function ItemForm({
   const [title, setTitle] = useState("");
   const [category, setCategory] = useState<ItemCategory>("Home");
   const [type, setType] = useState<ItemType>("recurring");
-  const [cadencePreset, setCadencePreset] = useState<CadencePreset>("weekly");
-  const [cadenceCustom, setCadenceCustom] = useState("");
-  const [timesPerPeriod, setTimesPerPeriod] = useState("1");
+  const [repeat, setRepeat] = useState<FrequencyFormValue>(EMPTY_REPEAT);
   const [estimatedDuration, setEstimatedDuration] = useState("30 min");
   const [priority, setPriority] = useState<ItemPriority>("Standard");
   const [flexibility, setFlexibility] = useState<ItemFlexibility>("Fixed");
@@ -164,7 +166,6 @@ export function ItemForm({
     "Can slide a little",
   );
   const [minimumSuccessThreshold, setMinimumSuccessThreshold] = useState("");
-  const [preferredDaysText, setPreferredDaysText] = useState("");
 
   useLayoutEffect(() => {
     if (initialItem) {
@@ -172,49 +173,27 @@ export function ItemForm({
         setTitle,
         setCategory,
         setType,
-        setCadencePreset,
-        setCadenceCustom,
-        setTimesPerPeriod,
+        setRepeat,
         setEstimatedDuration,
         setPriority,
         setFlexibility,
         setCadencePressure,
         setMinimumSuccessThreshold,
-        setPreferredDaysText,
       });
     } else {
       resetEmptyForm({
         setTitle,
         setCategory,
         setType,
-        setCadencePreset,
-        setCadenceCustom,
-        setTimesPerPeriod,
+        setRepeat,
         setEstimatedDuration,
         setPriority,
         setFlexibility,
         setCadencePressure,
         setMinimumSuccessThreshold,
-        setPreferredDaysText,
       });
     }
   }, [initialItem]);
-
-  const frequency = useMemo(() => {
-    if (cadencePreset === "custom") {
-      const match = cadenceCustom.match(/(\d+(?:\.\d+)?)/);
-      const frequency_value = match ? Number(match[1]) : 1;
-      return {
-        frequency_type: "custom" as const,
-        frequency_value: Number.isFinite(frequency_value) ? frequency_value : 1,
-      };
-    }
-    if (cadencePreset === "biweekly") {
-      return { frequency_type: "biweekly" as const, frequency_value: 1 };
-    }
-    const frequency_type = cadencePreset as Exclude<FrequencyType, "custom" | "biweekly">;
-    return { frequency_type, frequency_value: 1 };
-  }, [cadencePreset, cadenceCustom]);
 
   const parsedEstimatedMinutes = useMemo(() => {
     const match = estimatedDuration.match(/(\d+(?:\.\d+)?)/);
@@ -229,75 +208,78 @@ export function ItemForm({
     if (!trimmedTitle) return;
     if (parsedEstimatedMinutes == null) return;
 
-    const customNotes = cadencePreset === "custom" ? cadenceCustom.trim() : null;
-    const parsedTimes = Number(timesPerPeriod);
+    const repeating = type === "recurring" || type === "goal";
+    const every = clampEvery(Number(repeat.every));
+    const frequency_unit = repeating ? repeat.unit : null;
+    const frequency_value = repeating ? every : null;
+    const frequency_type = repeating ? frequencyTypeForInterval(repeat.unit, every) : null;
+    const parsedTimes = Number(repeat.times);
     const times_per_period =
-      type === "one_off" || !Number.isFinite(parsedTimes)
+      !repeating || !Number.isFinite(parsedTimes)
         ? 1
         : Math.min(14, Math.max(1, Math.round(parsedTimes)));
+    const preferred_days = repeating && repeat.days.length > 0 ? repeat.days : null;
+    const recurrence_end = repeating ? repeat.end : "never";
+    const recurrence_end_date =
+      recurrence_end === "on_date" && repeat.endDate ? repeat.endDate : null;
+    const endCount = Number(repeat.endCount);
+    const recurrence_end_count =
+      recurrence_end === "after_count" && Number.isFinite(endCount)
+        ? Math.max(1, Math.round(endCount))
+        : null;
+    const notes = repeat.notes.trim() ? repeat.notes.trim() : null;
     const nowISO = new Date().toISOString();
-    const preferred_days = parsePreferredDaysInput(preferredDaysText);
 
     let next_due_date: string | null = initialItem?.next_due_date ?? null;
-    if (
-      (type === "recurring" || type === "goal") &&
-      next_due_date == null &&
-      frequency.frequency_type != null
-    ) {
+    if (repeating && next_due_date == null && frequency_type != null) {
       next_due_date = computeInitialNextDueDate(
         {
           type,
-          frequency_type: frequency.frequency_type,
-          frequency_value: frequency.frequency_value,
+          frequency_type,
+          frequency_value,
+          frequency_unit,
         },
         nowISO,
       );
     }
 
+    const shared = {
+      title: trimmedTitle,
+      category,
+      type,
+      frequency_type,
+      frequency_value,
+      frequency_unit,
+      times_per_period,
+      recurrence_end,
+      recurrence_end_date,
+      recurrence_end_count,
+      preferred_days,
+      estimated_minutes: parsedEstimatedMinutes,
+      priority,
+      flexibility,
+      cadence_pressure: cadencePressure,
+      minimum_success_threshold: minimumSuccessThreshold.trim()
+        ? minimumSuccessThreshold.trim()
+        : null,
+      notes,
+      next_due_date,
+      updated_at: nowISO,
+    };
+
     const item: Item = initialItem
       ? {
           ...initialItem,
-          title: trimmedTitle,
-          category,
-          type,
-          frequency_type: frequency.frequency_type,
-          frequency_value: frequency.frequency_value,
-          times_per_period,
-          preferred_days,
-          estimated_minutes: parsedEstimatedMinutes,
-          priority,
-          flexibility,
-          cadence_pressure: cadencePressure,
-          minimum_success_threshold: minimumSuccessThreshold.trim()
-            ? minimumSuccessThreshold.trim()
-            : null,
-          notes: customNotes,
-          next_due_date,
-          updated_at: nowISO,
+          ...shared,
         }
       : {
           id: createId(),
-          title: trimmedTitle,
-          category,
-          type,
-          frequency_type: frequency.frequency_type,
-          frequency_value: frequency.frequency_value,
-          times_per_period,
-          preferred_days,
+          ...shared,
           preferred_time_of_day: null,
-          estimated_minutes: parsedEstimatedMinutes,
-          priority,
-          flexibility,
-          cadence_pressure: cadencePressure,
-          minimum_success_threshold: minimumSuccessThreshold.trim()
-            ? minimumSuccessThreshold.trim()
-            : null,
-          notes: customNotes,
+          completed_count: 0,
           is_archived: false,
           last_completed_at: null,
-          next_due_date,
           created_at: nowISO,
-          updated_at: nowISO,
         };
 
     await onSubmit(item);
@@ -364,78 +346,30 @@ export function ItemForm({
         </div>
       </Field>
 
-      <div className="grid grid-cols-1 gap-5 sm:grid-cols-2">
-        <Field label="Cadence / Frequency">
-          <div className="space-y-2">
-            <select
-              value={cadencePreset}
-              onChange={(e) => setCadencePreset(e.target.value as CadencePreset)}
-              disabled={disabled}
-              className="w-full appearance-none rounded-[10px] border border-border bg-surface-raised px-4 py-3 text-base text-ink shadow-sm outline-none focus:border-accent/40 focus:ring-2 focus:ring-accent/15 disabled:opacity-60"
-            >
-              {CADENCE_PRESETS.map((p) => (
-                <option key={p} value={p}>
-                  {p === "custom"
-                    ? "Custom"
-                    : p === "biweekly"
-                      ? "Biweekly"
-                      : p[0].toUpperCase() + p.slice(1)}
-                </option>
-              ))}
-            </select>
-            {cadencePreset === "custom" && (
-              <input
-                value={cadenceCustom}
-                onChange={(e) => setCadenceCustom(e.target.value)}
-                placeholder="e.g. Every 1.5 months"
-                disabled={disabled}
-                className="w-full rounded-[10px] border border-border bg-surface-raised px-4 py-3 text-base text-ink shadow-sm outline-none placeholder:text-ink-faint focus:border-accent/40 focus:ring-2 focus:ring-accent/15 disabled:opacity-60"
-              />
-            )}
-            {type !== "one_off" && (
-              <label className="block">
-                <span className="mb-1 block text-xs text-ink-muted">Times per period</span>
-                <input
-                  inputMode="numeric"
-                  value={timesPerPeriod}
-                  onChange={(e) => setTimesPerPeriod(e.target.value)}
-                  disabled={disabled}
-                  className="w-full rounded-[10px] border border-border bg-surface-raised px-4 py-3 text-base text-ink shadow-sm outline-none focus:border-accent/40 focus:ring-2 focus:ring-accent/15 disabled:opacity-60"
-                />
-                <span className="mt-1.5 block text-xs text-ink-muted">
-                  {cadencePreset === "daily"
-                    ? "How many times each day. 1 is once a day."
-                    : "How many times each week or month. 3 on a weekly item is three separate tasks."}
-                </span>
-              </label>
-            )}
-          </div>
-        </Field>
-
-        <Field label="Estimated duration">
-          <input
-            value={estimatedDuration}
-            onChange={(e) => setEstimatedDuration(e.target.value)}
-            placeholder="e.g. 30 min"
-            disabled={disabled}
-            className="w-full rounded-[10px] border border-border bg-surface-raised px-4 py-3 text-base text-ink shadow-sm outline-none placeholder:text-ink-faint focus:border-accent/40 focus:ring-2 focus:ring-accent/15 disabled:opacity-60"
-          />
-        </Field>
-      </div>
-
-      <Field label="Preferred days (optional)">
+      <Field label="Estimated duration">
         <input
-          value={preferredDaysText}
-          onChange={(e) => setPreferredDaysText(e.target.value)}
-          placeholder='e.g. wednesday or monday, thursday'
+          value={estimatedDuration}
+          onChange={(e) => setEstimatedDuration(e.target.value)}
+          placeholder="e.g. 30 min"
           disabled={disabled}
-          autoComplete="off"
           className="w-full rounded-[10px] border border-border bg-surface-raised px-4 py-3 text-base text-ink shadow-sm outline-none placeholder:text-ink-faint focus:border-accent/40 focus:ring-2 focus:ring-accent/15 disabled:opacity-60"
         />
-        <span className="mt-1.5 block text-xs text-ink-muted">
-          Weekday names; separate with commas or spaces. Used when planning your week.
-        </span>
       </Field>
+
+      {type === "one_off" ? (
+        <Field label="Notes">
+          <textarea
+            value={repeat.notes}
+            onChange={(e) => setRepeat({ ...repeat, notes: e.target.value })}
+            disabled={disabled}
+            rows={3}
+            placeholder="Anything you want to remember"
+            className="w-full resize-y rounded-[10px] border border-border bg-surface-raised px-4 py-3 text-base text-ink shadow-sm outline-none placeholder:text-ink-faint focus:border-accent/40 focus:ring-2 focus:ring-accent/15 disabled:opacity-60"
+          />
+        </Field>
+      ) : (
+        <FrequencyFields value={repeat} onChange={setRepeat} disabled={disabled} />
+      )}
 
       <Field label="Flexibility">
         <div className="grid grid-cols-3 gap-2 rounded-[10px] border border-border bg-surface-alt p-1">

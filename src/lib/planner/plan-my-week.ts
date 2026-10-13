@@ -1,4 +1,5 @@
 import type { Item } from "@/data/inventory-mock";
+import { intervalOf, repeatsEveryDay } from "@/lib/inventory/frequency";
 import type { NewPlannedTaskInput, PlannedTask } from "@/lib/db/map-rows";
 
 /** Priority sort: lower = schedule first (more urgent). */
@@ -480,7 +481,7 @@ export function buildPlanMyWeekInputs(
     const times = timesPerPeriod(item);
     const pref = preferredDayIndices(weekDayISOs, item.preferred_days);
     const spreadAcrossWeek =
-      item.frequency_type === "daily" || (times > 1 && !usesHardPreferredDays(item));
+      repeatsEveryDay(item) || (times > 1 && !usesHardPreferredDays(item));
     const placeDays = spreadAcrossWeek
       ? weekDayISOs
           .map((_, i) => i)
@@ -496,8 +497,18 @@ export function buildPlanMyWeekInputs(
 
     const before = outputs.length;
 
-    if (item.frequency_type === "daily") {
-      for (const dayIdx of placeDays) {
+    const { unit, every } = intervalOf(item);
+    const spacedDays =
+      unit === "days" && every > 1
+        ? placeDays.filter((i) => {
+            const anchor = dueDateOnlyISO(item.next_due_date) ?? todayISO;
+            const delta = dayIndexInWeek(anchor, weekDayISOs[i]!);
+            return delta >= 0 && delta % Math.round(every) === 0;
+          })
+        : placeDays;
+
+    if (repeatsEveryDay(item)) {
+      for (const dayIdx of spacedDays) {
         const iso = weekDayISOs[dayIdx]!;
         if (iso < todayISO) continue;
         const have = countOnDay.get(`${item.id}|${iso}`) ?? 0;

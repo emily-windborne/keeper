@@ -18,6 +18,7 @@ Output only valid JSON (no markdown fences, no preamble) with this exact shape:
       "type": "recurring" | "one_off" | "goal",
       "frequency_type": "daily" | "weekly" | "biweekly" | "monthly" | "custom" | null,
       "frequency_value": number | null,
+      "frequency_unit": "days" | "weeks" | "months" | null,
       "preferred_days": string[] | null,
       "preferred_time_of_day": "morning" | "afternoon" | "evening" | "anytime" | null,
       "estimated_minutes": number,
@@ -33,8 +34,9 @@ Output only valid JSON (no markdown fences, no preamble) with this exact shape:
 Rules:
 - Infer category from context (kids/school → Family, house chores → Home, exercise → Health, job → Work, etc.).
 - Use type "recurring" for habits and repeating chores; "one_off" for single errands; "goal" for longer aims.
-- For recurring/goal: set frequency_type and frequency_value (e.g. weekly + 1, or custom + 1.5 for every 6 weeks approximated).
-- For one_off: frequency_type and frequency_value must be null.
+- For recurring/goal: set frequency_unit to days, weeks, or months and frequency_value to how many of those units. "Every 10 days" is frequency_unit "days" and frequency_value 10. Never store that number as months, and never put the schedule into notes.
+- For one_off: frequency_type, frequency_value, and frequency_unit must be null.
+- notes is only extra detail the person wrote. Leave notes null when the text is just the schedule.
 - preferred_days: lowercase English weekday names when the text implies fixed days, else null.
 - estimated_minutes: realistic (5–180 for most home tasks unless clearly longer).
 - cadence_pressure: "Must stay on cadence" for strict medical/kid deadlines; "Can defer" for low stakes.

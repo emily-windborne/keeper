@@ -22,7 +22,12 @@ function item(partial: Partial<Item> & Pick<Item, "id" | "title">): Item {
     type: "recurring",
     frequency_type: "weekly",
     frequency_value: 1,
+    frequency_unit: "weeks",
     times_per_period: 1,
+    recurrence_end: "never",
+    recurrence_end_date: null,
+    recurrence_end_count: null,
+    completed_count: 0,
     preferred_days: null,
     preferred_time_of_day: "anytime",
     estimated_minutes: 30,
@@ -61,7 +66,7 @@ test("a weekly item set to 3 times lands three separate tasks", () => {
 
 test("a daily item is placed once on each remaining day, not once a week", () => {
   const result = buildPlanMyWeekInputs(
-    [item({ id: "meds", title: "Meds", frequency_type: "daily", times_per_period: 1 })],
+    [item({ id: "meds", title: "Meds", frequency_type: "daily", frequency_unit: "days", frequency_value: 1, times_per_period: 1 })],
     [],
     WEEK,
     TODAY,

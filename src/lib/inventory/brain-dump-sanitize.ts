@@ -1,5 +1,6 @@
 import type { Item } from "@/data/inventory-mock";
 import type { BrainDumpItemDraft } from "@/lib/api/brain-dump-types";
+import { frequencyTypeForInterval, intervalOf, type FrequencyUnit } from "@/lib/inventory/frequency";
 
 const CATEGORIES = new Set<Item["category"]>([
   "Home",
@@ -139,13 +140,31 @@ export function sanitizeBrainDumpItem(raw: unknown): BrainDumpItemDraft | null {
 
   const minimum_success_threshold = str(o.minimum_success_threshold);
   const notes = str(o.notes);
+  const statedUnit =
+    o.frequency_unit === "days" || o.frequency_unit === "weeks" || o.frequency_unit === "months"
+      ? (o.frequency_unit as FrequencyUnit)
+      : null;
+  const repeating = type === "recurring" || type === "goal";
+  const interval = repeating
+    ? intervalOf({
+        frequency_type,
+        frequency_value,
+        frequency_unit: statedUnit,
+      })
+    : null;
 
   return {
     title,
     category,
     type,
-    frequency_type,
-    frequency_value,
+    frequency_type: interval ? frequencyTypeForInterval(interval.unit, interval.every) : null,
+    frequency_value: interval ? interval.every : null,
+    frequency_unit: interval ? interval.unit : null,
+    times_per_period: Math.min(14, Math.max(1, Math.round(num(o.times_per_period, 1)))),
+    recurrence_end: "never",
+    recurrence_end_date: null,
+    recurrence_end_count: null,
+    completed_count: 0,
     preferred_days,
     preferred_time_of_day,
     estimated_minutes,
@@ -154,7 +173,6 @@ export function sanitizeBrainDumpItem(raw: unknown): BrainDumpItemDraft | null {
     cadence_pressure,
     minimum_success_threshold,
     notes,
-    times_per_period: Math.min(14, Math.max(1, Math.round(num(o.times_per_period, 1)))),
     is_archived: false,
     last_completed_at: null,
     next_due_date: null,

@@ -7,6 +7,7 @@ export type ItemCompletionPatch = {
   is_archived?: boolean;
   last_completed_at: string;
   next_due_date?: string | null;
+  completed_count?: number;
   updated_at: string;
 };
 
@@ -27,6 +28,7 @@ export function completionPatchForItem(item: Item, nowISO: string): ItemCompleti
     return {
       last_completed_at: nowISO,
       next_due_date: computeNextDueDate(item, nowISO),
+      completed_count: (item.completed_count ?? 0) + 1,
       updated_at: nowISO,
     };
   }
