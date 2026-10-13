@@ -20,6 +20,8 @@ export default function EditInventoryItemPage() {
   const [fetchError, setFetchError] = useState<string | null>(null);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState(false);
+  const [deleting, setDeleting] = useState(false);
 
   const loadItem = useCallback(async () => {
     if (!id) {
@@ -89,6 +91,36 @@ export default function EditInventoryItemPage() {
     router.refresh();
   }
 
+  async function handleDelete() {
+    if (!item || item.type !== "one_off") return;
+    if (!confirmDelete) {
+      setConfirmDelete(true);
+      return;
+    }
+
+    setDeleting(true);
+    setSaveError(null);
+    try {
+      // Remove planned occurrences first in case FK constraints do not cascade.
+      const { error: plannedErr } = await supabase.from("planned_tasks").delete().eq("item_id", item.id);
+      if (plannedErr) {
+        setSaveError(plannedErr.message);
+        return;
+      }
+
+      const { error: deleteErr } = await supabase.from("items").delete().eq("id", item.id);
+      if (deleteErr) {
+        setSaveError(deleteErr.message);
+        return;
+      }
+
+      router.push("/inventory");
+      router.refresh();
+    } finally {
+      setDeleting(false);
+    }
+  }
+
   if (loading) {
     return (
       <div className="flex flex-1 flex-col">
@@ -138,10 +170,26 @@ export default function EditInventoryItemPage() {
           key={item.id}
           initialItem={item}
           submitLabel={saving ? "Saving…" : "Save changes"}
-          disabled={saving}
+          disabled={saving || deleting}
           autoFocusTitle={false}
           onSubmit={(updated) => void handleSave(updated)}
         />
+        {item.type === "one_off" ? (
+          <div className="pt-3">
+            <button
+              type="button"
+              onClick={() => void handleDelete()}
+              disabled={saving || deleting}
+              className="w-full rounded-[10px] border border-border bg-surface-alt/30 px-4 py-3 text-base font-medium text-ink-muted/80 transition-colors hover:bg-surface-alt/45 hover:text-ink-muted disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              {deleting
+                ? "Deleting…"
+                : confirmDelete
+                  ? "Are you sure? Confirm delete"
+                  : "Delete item"}
+            </button>
+          </div>
+        ) : null}
       </div>
 
       {saveError ? (
