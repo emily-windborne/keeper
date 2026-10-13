@@ -1,20 +1,33 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { MORNING_DEFAULT_MINUTES } from "@/lib/notifications/digest";
 import { DEFAULT_DAY_START_MIN } from "@/lib/planner/plan-my-week";
 
 export type UserSettings = {
   dayStartMinutes: number;
   autoScheduleNext: boolean;
+  timezone: string | null;
+  morningDigestEnabled: boolean;
+  morningDigestMinutes: number;
 };
 
 export const DEFAULT_USER_SETTINGS: UserSettings = {
   dayStartMinutes: DEFAULT_DAY_START_MIN,
   autoScheduleNext: true,
+  timezone: null,
+  morningDigestEnabled: true,
+  morningDigestMinutes: MORNING_DEFAULT_MINUTES,
 };
 
 function clampDayStart(value: unknown): number {
   const n = typeof value === "number" ? value : Number(value);
   if (!Number.isFinite(n)) return DEFAULT_DAY_START_MIN;
   return Math.min(20 * 60, Math.max(0, Math.round(n)));
+}
+
+function clampClock(value: unknown, fallback: number): number {
+  const n = typeof value === "number" ? value : Number(value);
+  if (!Number.isFinite(n)) return fallback;
+  return Math.min(23 * 60 + 59, Math.max(0, Math.round(n)));
 }
 
 export function minutesToHHMM(total: number): string {
@@ -35,10 +48,19 @@ export function hhmmToMinutes(value: string): number | null {
 export async function loadUserSettings(supabase: SupabaseClient): Promise<UserSettings> {
   const { data, error } = await supabase.from("user_settings").select("*").maybeSingle();
   if (error || !data) return DEFAULT_USER_SETTINGS;
-  const row = data as { day_start_minutes?: number; auto_schedule_next?: boolean };
+  const row = data as {
+    day_start_minutes?: number;
+    auto_schedule_next?: boolean;
+    timezone?: string | null;
+    morning_digest_enabled?: boolean;
+    morning_digest_minutes?: number;
+  };
   return {
     dayStartMinutes: clampDayStart(row.day_start_minutes),
     autoScheduleNext: row.auto_schedule_next !== false,
+    timezone: typeof row.timezone === "string" && row.timezone.trim() ? row.timezone : null,
+    morningDigestEnabled: row.morning_digest_enabled !== false,
+    morningDigestMinutes: clampClock(row.morning_digest_minutes, MORNING_DEFAULT_MINUTES),
   };
 }
 
@@ -51,11 +73,14 @@ export async function saveUserSettings(
     user_id: userId,
     day_start_minutes: clampDayStart(settings.dayStartMinutes),
     auto_schedule_next: settings.autoScheduleNext,
+    timezone: settings.timezone,
+    morning_digest_enabled: settings.morningDigestEnabled,
+    morning_digest_minutes: clampClock(settings.morningDigestMinutes, MORNING_DEFAULT_MINUTES),
     updated_at: new Date().toISOString(),
   });
   if (!error) return null;
-  if (/user_settings/i.test(error.message)) {
-    return "Settings need a database update. Run supabase/migrations/005_fixed_time_and_day_start.sql, then try again.";
+  if (/user_settings|morning_digest|timezone/i.test(error.message)) {
+    return "Settings need a database update. Run supabase/migrations/008_notifications.sql, then try again.";
   }
   return error.message;
 }

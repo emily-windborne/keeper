@@ -68,6 +68,49 @@ function taskSnapshotTitle(u: TaskUpdateRow): string {
   return u.planned_tasks?.title_snapshot ?? "Task";
 }
 
+function taskTimeLabel(value: string | null): string | null {
+  if (!value) return null;
+  const match = value.match(/^(\d{1,2}):(\d{2})/);
+  if (!match) return null;
+  const date = new Date();
+  date.setHours(Number(match[1]), Number(match[2]), 0, 0);
+  return date.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
+}
+
+function TomorrowPreview({ tasks }: { tasks: PlannedTask[] }) {
+  const ordered = [...tasks].sort(
+    (a, b) =>
+      (a.scheduled_time_start ?? "99:99").localeCompare(b.scheduled_time_start ?? "99:99") ||
+      a.title_snapshot.localeCompare(b.title_snapshot),
+  );
+  return (
+    <details className="mt-8 rounded-[14px] border border-border bg-surface-raised shadow-soft">
+      <summary className="min-h-11 cursor-pointer list-none px-4 py-3">
+        <span className="flex items-center justify-between gap-3">
+          <span className="text-[15px] font-medium text-ink">Preview tomorrow</span>
+          <span className="text-[12px] text-ink-muted">Optional</span>
+        </span>
+      </summary>
+      <div className="border-t border-border px-4 py-3">
+        {ordered.length === 0 ? (
+          <p className="text-[13px] text-ink-muted">Nothing scheduled for tomorrow.</p>
+        ) : (
+          <ul className="flex flex-col gap-3">
+            {ordered.map((task) => {
+              const time = taskTimeLabel(task.scheduled_time_start);
+              return (
+                <li key={task.id} className="text-[15px] text-ink">
+                  {time ? `${time} · ${task.title_snapshot}` : task.title_snapshot}
+                </li>
+              );
+            })}
+          </ul>
+        )}
+      </div>
+    </details>
+  );
+}
+
 export function CheckInScreen() {
   const supabase = useMemo(() => createClient(), []);
   const todayISO = useMemo(() => toISODate(new Date()), []);
@@ -80,6 +123,7 @@ export function CheckInScreen() {
   const [summaryUpdates, setSummaryUpdates] = useState<TaskUpdateRow[]>([]);
 
   const [todayTasks, setTodayTasks] = useState<PlannedTask[]>([]);
+  const [tomorrowTasks, setTomorrowTasks] = useState<PlannedTask[]>([]);
   const [itemsById, setItemsById] = useState<Map<string, Item>>(new Map());
 
   const [energy, setEnergy] = useState<EnergyLevel | null>(null);
@@ -98,7 +142,8 @@ export function CheckInScreen() {
       return;
     }
 
-    const [checkRes, tasksRes, itemsRes] = await Promise.all([
+    const tomorrowISO = addDaysToISO(todayISO, 1);
+    const [checkRes, tasksRes, itemsRes, tomorrowRes] = await Promise.all([
       supabase.from("check_ins").select("*").eq("user_id", user.id).eq("date", todayISO).maybeSingle(),
       supabase
         .from("planned_tasks")
@@ -108,7 +153,22 @@ export function CheckInScreen() {
         .eq("status", "planned")
         .order("scheduled_time_start", { ascending: true, nullsFirst: false }),
       supabase.from("items").select("*").eq("user_id", user.id),
+      supabase
+        .from("planned_tasks")
+        .select("*")
+        .eq("user_id", user.id)
+        .eq("scheduled_date", tomorrowISO)
+        .in("status", ["planned", "moved"])
+        .order("scheduled_time_start", { ascending: true, nullsFirst: false }),
     ]);
+
+    if (!tomorrowRes.error && tomorrowRes.data) {
+      setTomorrowTasks(
+        tomorrowRes.data.map((row) => mapPlannedTaskRow(row as Parameters<typeof mapPlannedTaskRow>[0])),
+      );
+    } else {
+      setTomorrowTasks([]);
+    }
 
     if (checkRes.error) {
       setError(checkRes.error.message);
@@ -382,6 +442,8 @@ export function CheckInScreen() {
               </ul>
             </section>
           )}
+
+          <TomorrowPreview tasks={tomorrowTasks} />
         </div>
       </div>
     );
@@ -487,6 +549,8 @@ export function CheckInScreen() {
           className="w-full rounded-[14px] border border-border bg-surface-raised px-4 py-3 text-[15px] text-ink shadow-sm outline-none placeholder:text-ink-faint focus:border-accent/40 focus:ring-2 focus:ring-accent/15"
         />
       </label>
+
+      <TomorrowPreview tasks={tomorrowTasks} />
 
       {error && <p className="mt-4 text-[13px] text-red-800/90">{error}</p>}
 

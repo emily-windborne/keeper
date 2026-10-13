@@ -18,6 +18,17 @@ const dmSerif = DM_Serif_Display({
 export const metadata: Metadata = {
   title: "Keeper",
   description: "Your companion app",
+  applicationName: "Keeper",
+  manifest: "/manifest.webmanifest",
+  appleWebApp: {
+    capable: true,
+    title: "Keeper",
+    statusBarStyle: "default",
+  },
+  icons: {
+    icon: "/keeper-logo.png",
+    apple: "/keeper-logo.png",
+  },
 };
 
 export const viewport: Viewport = {

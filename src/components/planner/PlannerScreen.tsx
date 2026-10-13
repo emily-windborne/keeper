@@ -3,7 +3,7 @@
 import { createClient } from "@lib/supabase";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import dynamic from "next/dynamic";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 import type { Item } from "@/data/inventory-mock";
 import { PlannerCalendarPopover } from "@/components/planner/PlannerCalendarPopover";
@@ -115,10 +115,18 @@ export function PlannerScreen() {
   }, [timelineWeekDays]);
 
   const todayISO = useMemo(() => toISODate(todayStart), [todayStart]);
+  const searchParams = useSearchParams();
   const [selectedDateISO, setSelectedDateISO] = useState(todayISO);
   const [plannerView, setPlannerView] = useState<PlannerView>("week");
   const [monthCursor, setMonthCursor] = useState(() => startOfMonth(new Date()));
   const [toast, setToast] = useState<Toast>(null);
+
+  useEffect(() => {
+    if (searchParams.get("today") === "1") {
+      setSelectedDateISO(todayISO);
+      setPlannerView("day");
+    }
+  }, [searchParams, todayISO]);
 
   const supabase = useMemo(() => createClient(), []);
   const [items, setItems] = useState<Item[]>([]);

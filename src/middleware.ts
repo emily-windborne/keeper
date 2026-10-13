@@ -21,6 +21,10 @@ export async function middleware(request: NextRequest) {
     return NextResponse.next();
   }
 
+  if (pathname === "/sw.js" || pathname === "/manifest.webmanifest") {
+    return NextResponse.next();
+  }
+
   if (pathname === "/auth/sign-in") {
     const u = request.nextUrl.clone();
     u.pathname = "/auth/signin";
