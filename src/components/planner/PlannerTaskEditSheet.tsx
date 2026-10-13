@@ -50,6 +50,9 @@ export type PlannerTaskEditSheetProps = {
     },
   ) => Promise<boolean>;
   onSaveItem: (item: Item) => Promise<boolean>;
+  onMarkDone?: (taskId: string) => void;
+  onSkip?: (taskId: string) => void;
+  onDelete?: (taskId: string) => void;
 };
 
 export function PlannerTaskEditSheet({
@@ -60,6 +63,9 @@ export function PlannerTaskEditSheet({
   onClose,
   onSaveInstance,
   onSaveItem,
+  onMarkDone,
+  onSkip,
+  onDelete,
 }: PlannerTaskEditSheetProps) {
   const itemFormDomId = `planner-task-edit-form-${sessionKey}`;
   const [tab, setTab] = useState<EditTab>("instance");
@@ -246,6 +252,29 @@ export function PlannerTaskEditSheet({
                   className="w-full resize-y rounded-[10px] border border-border bg-surface-raised px-4 py-3 text-base text-ink shadow-sm outline-none placeholder:text-ink-faint focus:border-accent/40 focus:ring-2 focus:ring-accent/15"
                 />
               </label>
+              <div className="grid grid-cols-2 gap-2">
+                <button
+                  type="button"
+                  onClick={() => onMarkDone?.(task.id)}
+                  className="min-h-11 rounded-[10px] border border-border bg-surface-raised px-3 py-2 text-[13px] font-semibold text-ink"
+                >
+                  Mark done
+                </button>
+                <button
+                  type="button"
+                  onClick={() => onSkip?.(task.id)}
+                  className="min-h-11 rounded-[10px] border border-border bg-surface-raised px-3 py-2 text-[13px] font-semibold text-ink"
+                >
+                  Skip
+                </button>
+                <button
+                  type="button"
+                  onClick={() => onDelete?.(task.id)}
+                  className="col-span-2 min-h-11 rounded-[10px] border border-red-800/25 bg-surface-raised px-3 py-2 text-[13px] font-semibold text-red-900/90"
+                >
+                  Delete this task
+                </button>
+              </div>
             </div>
 
             <div className={tab === "all" ? "block pb-4" : "hidden"}>
