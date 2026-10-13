@@ -16,7 +16,12 @@ export function itemColumns(
     type: item.type,
     frequency_type: item.frequency_type,
     frequency_value: item.frequency_value,
+    frequency_unit: item.frequency_unit,
     times_per_period: clampTimesPerPeriod(item.times_per_period),
+    recurrence_end: item.recurrence_end ?? "never",
+    recurrence_end_date: item.recurrence_end_date,
+    recurrence_end_count: item.recurrence_end_count,
+    completed_count: item.completed_count ?? 0,
     preferred_days: item.preferred_days,
     preferred_time_of_day: item.preferred_time_of_day,
     estimated_minutes: item.estimated_minutes,
@@ -53,7 +58,12 @@ type ItemRow = {
   type: Item["type"];
   frequency_type: Item["frequency_type"];
   frequency_value: number | null;
+  frequency_unit: Item["frequency_unit"];
   times_per_period: number | null;
+  recurrence_end: Item["recurrence_end"] | null;
+  recurrence_end_date: string | null;
+  recurrence_end_count: number | null;
+  completed_count: number | null;
   preferred_days: string[] | null;
   preferred_time_of_day: Item["preferred_time_of_day"];
   estimated_minutes: number;
@@ -93,7 +103,12 @@ export function mapItemRow(row: ItemRow): Item {
     type: row.type,
     frequency_type: row.frequency_type,
     frequency_value: row.frequency_value,
+    frequency_unit: row.frequency_unit ?? null,
     times_per_period: clampTimesPerPeriod(row.times_per_period),
+    recurrence_end: row.recurrence_end === "on_date" || row.recurrence_end === "after_count" ? row.recurrence_end : "never",
+    recurrence_end_date: row.recurrence_end_date,
+    recurrence_end_count: row.recurrence_end_count,
+    completed_count: row.completed_count ?? 0,
     preferred_days: Array.isArray(preferred) ? preferred : null,
     preferred_time_of_day: row.preferred_time_of_day,
     estimated_minutes: row.estimated_minutes,

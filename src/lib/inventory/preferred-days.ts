@@ -1,3 +1,15 @@
+export const WEEKDAYS = [
+  "monday",
+  "tuesday",
+  "wednesday",
+  "thursday",
+  "friday",
+  "saturday",
+  "sunday",
+] as const;
+
+export type WeekdayName = (typeof WEEKDAYS)[number];
+
 /** Display `preferred_days` as comma-separated weekday names. */
 export function formatPreferredDays(days: string[] | null): string {
   return days?.length ? days.join(", ") : "";

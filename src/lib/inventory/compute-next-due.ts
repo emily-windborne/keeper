@@ -1,36 +1,9 @@
 import type { Item } from "@/data/inventory-mock";
-
-const MS_PER_DAY = 86400000;
-/** Average days per month (Gregorian) for fractional month offsets. */
-const AVG_DAYS_PER_MONTH = 30.437;
+import { addInterval, intervalOf, nextDueAfterCompletion } from "@/lib/inventory/frequency";
 
 function toDate(iso: string): Date | null {
   const d = new Date(iso);
   return Number.isFinite(d.getTime()) ? d : null;
-}
-
-function addDays(d: Date, days: number): Date {
-  return new Date(d.getTime() + days * MS_PER_DAY);
-}
-
-/**
- * Advance by a number of calendar months (whole part) plus fractional remainder in average days.
- * Used for `monthly` (frequency_value = number of months) and `custom` (frequency_value = months, may be fractional).
- */
-function addMonthsFromValue(d: Date, monthsTotal: number): Date {
-  if (!Number.isFinite(monthsTotal) || monthsTotal <= 0) {
-    return addDays(d, 30);
-  }
-  const whole = Math.floor(monthsTotal);
-  const frac = monthsTotal - whole;
-  const out = new Date(d.getTime());
-  if (whole > 0) {
-    out.setUTCMonth(out.getUTCMonth() + whole);
-  }
-  if (frac > 1e-9) {
-    out.setTime(out.getTime() + Math.round(frac * AVG_DAYS_PER_MONTH * MS_PER_DAY));
-  }
-  return out;
 }
 
 /** Calendar day of `d` at UTC noon as ISO string (stable for date-only semantics). */
@@ -49,37 +22,10 @@ function utcNoonISO(d: Date): string {
  * - daily: next calendar day after completion.
  */
 export function computeNextDueDate(item: Item, completedAtISO: string): string | null {
-  const completedAt = toDate(completedAtISO);
-  if (!completedAt) return null;
-
-  const v = item.frequency_value ?? 1;
-  const ft = item.frequency_type;
-
-  if (ft === "daily") {
-    const days = Math.max(1, Math.round(Number.isFinite(v) ? v : 1));
-    return addDays(completedAt, days).toISOString();
-  }
-  if (ft === "weekly") {
-    const periods = Math.max(1, Number.isFinite(v) ? v : 1);
-    return addDays(completedAt, 7 * periods).toISOString();
-  }
-  if (ft === "biweekly") {
-    const periods = Math.max(1, Number.isFinite(v) ? v : 1);
-    return addDays(completedAt, 14 * periods).toISOString();
-  }
-  if (ft === "monthly") {
-    const months = Math.max(0.25, Number.isFinite(v) ? v : 1);
-    return addMonthsFromValue(completedAt, months).toISOString();
-  }
-  if (ft === "custom") {
-    const months = Math.max(0.25, Number.isFinite(v) ? v : 1);
-    return addMonthsFromValue(completedAt, months).toISOString();
-  }
-
-  return null;
+  return nextDueAfterCompletion(item, completedAtISO);
 }
 
-type InitialDuePick = Pick<Item, "type" | "frequency_type" | "frequency_value">;
+type InitialDuePick = Pick<Item, "type" | "frequency_type" | "frequency_value" | "frequency_unit">;
 
 /**
  * First `next_due_date` when none is set yet (new or first save with null).
@@ -94,29 +40,10 @@ export function computeInitialNextDueDate(item: InitialDuePick, referenceAtISO: 
   const ref = toDate(referenceAtISO);
   if (!ref) return null;
 
-  const ft = item.frequency_type;
-  if (ft == null) return null;
-
-  const fv = item.frequency_value ?? 1;
-
-  if (ft === "daily") {
-    return utcNoonISO(ref);
-  }
-  if (ft === "weekly") {
-    return addDays(ref, 7).toISOString();
-  }
-  if (ft === "biweekly") {
-    return addDays(ref, 14).toISOString();
-  }
-  if (ft === "monthly") {
-    return addDays(ref, 30).toISOString();
-  }
-  if (ft === "custom") {
-    const months = Math.max(0.25, Number.isFinite(fv) ? fv : 1);
-    return addMonthsFromValue(ref, months).toISOString();
-  }
-
-  return null;
+  if (item.frequency_type == null && item.frequency_unit == null) return null;
+  const { unit, every } = intervalOf(item);
+  if (unit === "days" && every <= 1) return utcNoonISO(ref);
+  return addInterval(ref, unit, every).toISOString();
 }
 
 /** Apply initial next due when inserting an item if it is recurring/goal, has cadence, and due is unset. */
