@@ -32,6 +32,7 @@ import { ToastView } from "@/components/planner/ToastView";
 import { markPlannedTaskDone } from "@/lib/planner/mark-task-done";
 import { applyPlanMyWeek } from "@/lib/planner/apply-plan-my-week";
 import { DEFAULT_DAY_START_MIN } from "@/lib/planner/plan-my-week";
+import { describeScheduleConflict, saveNextRepeats } from "@/lib/planner/next-repeat";
 import { loadUserSettings } from "@/lib/settings/user-settings";
 
 const PlannerTaskEditSheetLazy = dynamic(
@@ -116,6 +117,7 @@ export function PlannerScreen() {
   const [plannedTasks, setPlannedTasks] = useState<PlannedTask[]>([]);
   const [loading, setLoading] = useState(true);
   const [dayStartMin, setDayStartMin] = useState(DEFAULT_DAY_START_MIN);
+  const [autoScheduleNext, setAutoScheduleNext] = useState(true);
 
   const itemById = useMemo(() => {
     const map = new Map<string, Item>();
@@ -133,14 +135,16 @@ export function PlannerScreen() {
           supabase.from("planned_tasks").select("*").order("scheduled_date", { ascending: true }),
         ]);
         if (cancelled) return;
-        if (!itemsRes.error && itemsRes.data) {
-          setItems(itemsRes.data.map((r) => mapItemRow(r as Parameters<typeof mapItemRow>[0])));
-        }
-        if (!tasksRes.error && tasksRes.data) {
-          setPlannedTasks(
-            tasksRes.data.map((r) => mapPlannedTaskRow(r as Parameters<typeof mapPlannedTaskRow>[0])),
-          );
-        }
+        const mappedItems =
+          !itemsRes.error && itemsRes.data
+            ? itemsRes.data.map((r) => mapItemRow(r as Parameters<typeof mapItemRow>[0]))
+            : [];
+        const mappedTasks =
+          !tasksRes.error && tasksRes.data
+            ? tasksRes.data.map((r) => mapPlannedTaskRow(r as Parameters<typeof mapPlannedTaskRow>[0]))
+            : [];
+        if (!itemsRes.error && itemsRes.data) setItems(mappedItems);
+        if (!tasksRes.error && tasksRes.data) setPlannedTasks(mappedTasks);
         if (itemsRes.error) {
           setToast({ id: createId(), message: itemsRes.error.message });
         }
@@ -148,7 +152,25 @@ export function PlannerScreen() {
           setToast({ id: createId(), message: tasksRes.error.message });
         }
         const settings = await loadUserSettings(supabase);
-        if (!cancelled) setDayStartMin(settings.dayStartMinutes);
+        if (cancelled) return;
+        setDayStartMin(settings.dayStartMinutes);
+        setAutoScheduleNext(settings.autoScheduleNext);
+        if (settings.autoScheduleNext && !itemsRes.error && !tasksRes.error) {
+          const filled = await saveNextRepeats(
+            supabase,
+            mappedItems,
+            mappedTasks,
+            todayISO,
+            new Date(),
+            settings.dayStartMinutes,
+          );
+          if (cancelled) return;
+          if (filled.error) {
+            setToast({ id: createId(), message: filled.error });
+          } else if (filled.tasks.length > 0) {
+            setPlannedTasks((prev) => [...filled.tasks, ...prev]);
+          }
+        }
       } catch (e) {
         if (!cancelled) {
           setToast({
@@ -163,7 +185,7 @@ export function PlannerScreen() {
     return () => {
       cancelled = true;
     };
-  }, [supabase]);
+  }, [supabase, todayISO]);
 
   const [taskActionsOpen, setTaskActionsOpen] = useState(false);
   const [activeTaskId, setActiveTaskId] = useState<string | null>(null);
@@ -671,14 +693,76 @@ export function PlannerScreen() {
       setToast({ id: createId(), message: result.error });
       return;
     }
-    setPlannedTasks((prev) => prev.map((t) => (t.id === taskId ? result.task : t)));
-    if (result.item) {
-      const nextItem = result.item;
-      setItems((prev) => prev.map((i) => (i.id === nextItem.id ? nextItem : i)));
+    const nextTasks = plannedTasks.map((t) => (t.id === taskId ? result.task : t));
+    const nextItems = result.item
+      ? items.map((i) => (i.id === result.item!.id ? result.item! : i))
+      : items;
+    setPlannedTasks(nextTasks);
+    if (result.item) setItems(nextItems);
+    if (
+      autoScheduleNext &&
+      result.item &&
+      (result.item.type === "recurring" || result.item.type === "anchor")
+    ) {
+      const filled = await saveNextRepeats(
+        supabase,
+        nextItems,
+        nextTasks,
+        todayISO,
+        new Date(),
+        dayStartMin,
+      );
+      if (filled.error) {
+        setToast({ id: createId(), message: filled.error });
+      } else if (filled.tasks.length > 0) {
+        setPlannedTasks((prev) => [...filled.tasks, ...prev]);
+        setToast({
+          id: createId(),
+          message:
+            filled.tasks.length === 1
+              ? "The next repeat is on the calendar."
+              : `Added ${filled.tasks.length} upcoming repeats.`,
+        });
+      }
     }
   }
 
+  function scheduleConflict(
+    dateISO: string,
+    start: string | null,
+    end: string | null,
+    itemId: string | null,
+    ignoreTaskId?: string,
+  ): string | null {
+    const quietItemIds = new Set(items.filter((item) => item.type === "anchor").map((item) => item.id));
+    return describeScheduleConflict(
+      ignoreTaskId ? plannedTasks.filter((task) => task.id !== ignoreTaskId) : plannedTasks,
+      dateISO,
+      start,
+      end,
+      todayISO,
+      new Date(),
+      {
+        occupiesTime: itemId ? itemById.get(itemId)?.type !== "anchor" : true,
+        quietItemIds,
+      },
+    );
+  }
+
   async function moveTask(taskId: string, toDateISO: string) {
+    const task = plannedTasks.find((t) => t.id === taskId);
+    if (!task) return;
+    const conflict = scheduleConflict(
+      toDateISO,
+      task.scheduled_time_start,
+      task.scheduled_time_end,
+      task.item_id,
+      taskId,
+    );
+    if (conflict) {
+      setToast({ id: createId(), message: conflict });
+      return;
+    }
     const nowISO = new Date().toISOString();
     const { error } = await supabase
       .from("planned_tasks")
@@ -721,6 +805,18 @@ export function PlannerScreen() {
       notes: string | null;
     },
   ): Promise<boolean> {
+    const current = plannedTasks.find((t) => t.id === taskId);
+    const conflict = scheduleConflict(
+      patch.scheduled_date,
+      patch.scheduled_time_start,
+      patch.scheduled_time_end,
+      current?.item_id ?? null,
+      taskId,
+    );
+    if (conflict) {
+      setToast({ id: createId(), message: conflict });
+      return false;
+    }
     const nowISO = new Date().toISOString();
     const { error } = await supabase
       .from("planned_tasks")
@@ -765,6 +861,17 @@ export function PlannerScreen() {
       return;
     }
 
+    const conflict = scheduleConflict(
+      input.scheduled_date,
+      input.scheduled_time_start,
+      input.scheduled_time_end,
+      input.item_id,
+    );
+    if (conflict) {
+      setToast({ id: createId(), message: conflict });
+      return;
+    }
+
     const { data, error } = await supabase
       .from("planned_tasks")
       .insert(plannedTaskToInsertRow(user.id, input))
@@ -797,6 +904,17 @@ export function PlannerScreen() {
 
     const trimmed = payload.title.trim();
     if (!trimmed) return;
+
+    const conflict = scheduleConflict(
+      payload.scheduled_date,
+      payload.scheduled_time_start,
+      payload.scheduled_time_end,
+      null,
+    );
+    if (conflict) {
+      setToast({ id: createId(), message: conflict });
+      return;
+    }
 
     const quickItem: Omit<Item, "id" | "created_at" | "updated_at"> = {
       title: trimmed,

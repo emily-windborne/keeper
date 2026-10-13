@@ -24,7 +24,7 @@ export function completionPatchForItem(item: Item, nowISO: string): ItemCompleti
       updated_at: nowISO,
     };
   }
-  if (item.type === "recurring") {
+  if (item.type === "recurring" || item.type === "anchor") {
     return {
       last_completed_at: nowISO,
       next_due_date: computeNextDueDate(item, nowISO),

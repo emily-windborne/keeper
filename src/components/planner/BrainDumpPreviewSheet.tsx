@@ -20,7 +20,14 @@ function rowId(): string {
 }
 
 const CATEGORIES: ItemCategory[] = ["Home", "Family", "Personal", "Work", "Upkeep", "Health"];
-const TYPES: ItemType[] = ["recurring", "one_off", "goal"];
+const TYPES: ItemType[] = ["recurring", "one_off", "goal", "anchor"];
+
+function typeLabel(type: ItemType): string {
+  if (type === "one_off") return "One-off";
+  if (type === "goal") return "Goal";
+  if (type === "anchor") return "Routine";
+  return "Recurring";
+}
 const FREQ_OPTIONS: NonNullable<FrequencyType>[] = [
   "daily",
   "weekly",
@@ -247,7 +254,7 @@ export function BrainDumpPreviewSheet({
                         >
                           {TYPES.map((t) => (
                             <option key={t} value={t}>
-                              {t === "one_off" ? "One-off" : t === "goal" ? "Goal" : "Recurring"}
+                              {typeLabel(t)}
                             </option>
                           ))}
                         </select>

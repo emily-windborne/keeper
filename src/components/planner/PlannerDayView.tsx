@@ -33,6 +33,8 @@ export function PlannerDayView({
   itemById: Map<string, Item>;
   onOpenTask: (taskId: string) => void;
 }) {
+  const anchors = tasks.filter((task) => itemById.get(task.item_id)?.type === "anchor");
+  const blocks = tasks.filter((task) => itemById.get(task.item_id)?.type !== "anchor");
   const noTime: PlannedTask[] = [];
   const outsideWindow: PlannedTask[] = [];
   const byHour = new Map<number, PlannedTask[]>();
@@ -40,7 +42,7 @@ export function PlannerDayView({
     byHour.set(h, []);
   }
 
-  for (const task of tasks) {
+  for (const task of blocks) {
     const hour = timeStartToHour(task.scheduled_time_start);
     if (hour == null) {
       noTime.push(task);
@@ -113,7 +115,7 @@ export function PlannerDayView({
     );
   }
 
-  if (tasks.length === 0) {
+  if (blocks.length === 0 && anchors.length === 0) {
     return (
       <p className="rounded-[14px] border border-dashed border-border bg-surface-alt/60 px-4 py-10 text-center text-[13px] text-ink-muted">
         No planned tasks for this day yet.
@@ -123,6 +125,34 @@ export function PlannerDayView({
 
   return (
     <div className="flex flex-col gap-6">
+      {anchors.length > 0 && (
+        <section aria-label="Routines">
+          <h3 className="mb-2 text-[12px] font-semibold uppercase tracking-wide text-ink-muted">
+            Routines
+          </h3>
+          <ul className="flex flex-col gap-2">
+            {anchors.map((task) => {
+              const item = itemById.get(task.item_id);
+              if (!item) return null;
+              return (
+                <li key={task.id}>
+                  <button
+                    type="button"
+                    onClick={() => onOpenTask(task.id)}
+                    className="flex min-h-11 w-full items-center gap-3 rounded-full border border-border bg-surface-alt/70 px-3 text-left"
+                  >
+                    <span className="h-2.5 w-2.5 shrink-0 rounded-full bg-accent" aria-hidden />
+                    <span className="min-w-0 flex-1 truncate text-[14px] text-ink">{task.title_snapshot}</span>
+                    {task.scheduled_time_start && (
+                      <span className="text-[12px] text-ink-muted">{task.scheduled_time_start}</span>
+                    )}
+                  </button>
+                </li>
+              );
+            })}
+          </ul>
+        </section>
+      )}
       {noTime.filter((t) => itemById.has(t.item_id)).length > 0 && (
         <section aria-label="Tasks without a start time">
           <h3 className="mb-2 text-[12px] font-semibold uppercase tracking-wide text-ink-muted">

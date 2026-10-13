@@ -2,7 +2,7 @@ export type Item = {
   id: string;
   title: string;
   category: "Home" | "Family" | "Personal" | "Work" | "Upkeep" | "Health";
-  type: "recurring" | "one_off" | "goal";
+  type: "recurring" | "one_off" | "goal" | "anchor";
   frequency_type: "daily" | "weekly" | "biweekly" | "monthly" | "custom" | null;
   frequency_value: number | null;
   /** days, weeks, or months. Null on older rows until they are saved again. */
