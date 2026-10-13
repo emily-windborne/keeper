@@ -1,35 +1,30 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
+import { completeStructuredJson } from "@/lib/api/anthropic-json";
 import type {
   RefineApiAction,
   RefineChange,
   RefineRequestBody,
   RefineResponseBody,
 } from "@/lib/api/refine-types";
+import { REFINE_OUTPUT_SCHEMA } from "@/lib/api/refine-types";
 
 export const runtime = "nodejs";
 
-const MODEL = "claude-sonnet-4-20250514";
+const MODEL = "claude-sonnet-5-5";
 
-const SYSTEM_PROMPT = `You are Keeper's planning assistant. You output only valid JSON, no markdown fences, no preamble, no commentary outside the JSON object.
-
-The user will send a JSON payload describing their inventory items and planned tasks for the week. You must propose a small set of concrete schedule changes.
+const SYSTEM_PROMPT = `You are Keeper's planning assistant. You decide what should be added, moved, or removed. You do not choose clock times. The app finds an open time after you answer.
 
 Rules:
 - Prioritize items with flexibility "Fixed" and cadence_pressure "Must stay on cadence" when deciding what stays put.
-- Never invent item_ids or planned_task_ids. Every id in your output must appear in the provided context.
+- Never invent item_ids or planned_task_ids. Every id must appear in the provided context.
+- For add: set item_id, leave planned_task_id as an empty string. to_date is YYYY-MM-DD when a particular day matters, or an empty string when any remaining day this week is fine.
+- For move: set planned_task_id. to_date is the day to aim for, or empty when any remaining day is fine. The app will pick a new time. Do not keep or invent a clock time.
+- For remove: set planned_task_id and leave item_id and to_date empty.
+- Do not put a time of day in any field.
 - If no changes are needed, return an empty changes array with a short note.
-- The "note" must be one calm, practical sentence in plain language. No cheerleading, no life coaching, no exclamation marks. Avoid em dashes.
-
-Response shape (exact keys):
-{
-  "changes": Array<
-    | { "action": "move", "planned_task_id": string, "to_date": "YYYY-MM-DD" }
-    | { "action": "add", "item_id": string, "to_date": "YYYY-MM-DD", "scheduled_time_start"?: "HH:MM" }
-    | { "action": "remove", "planned_task_id": string }
-  >,
-  "note": string
-}`;
+- The note is one calm, practical sentence. No cheerleading, no exclamation marks, no em dashes.
+- Use the current date, time, and time zone in the request. Do not suggest a day that is already past.`;
 
 function isRefineAction(x: unknown): x is RefineApiAction {
   return (
@@ -41,33 +36,20 @@ function isRefineAction(x: unknown): x is RefineApiAction {
   );
 }
 
-function extractJsonObject(text: string): unknown {
-  const trimmed = text.trim();
-  const fence = trimmed.match(/```(?:json)?\s*([\s\S]*?)```/);
-  const raw = fence ? fence[1].trim() : trimmed;
-  return JSON.parse(raw);
+function isDateOrEmpty(value: string): boolean {
+  return value === "" || /^\d{4}-\d{2}-\d{2}$/.test(value);
 }
 
 function isValidChange(change: unknown, validTaskIds: Set<string>, validItemIds: Set<string>): change is RefineChange {
   if (!change || typeof change !== "object") return false;
   const c = change as Record<string, unknown>;
+  const toDate = typeof c.to_date === "string" ? c.to_date : "";
+  if (!isDateOrEmpty(toDate)) return false;
   if (c.action === "move") {
-    return (
-      typeof c.planned_task_id === "string" &&
-      validTaskIds.has(c.planned_task_id) &&
-      typeof c.to_date === "string" &&
-      /^\d{4}-\d{2}-\d{2}$/.test(c.to_date)
-    );
+    return typeof c.planned_task_id === "string" && validTaskIds.has(c.planned_task_id);
   }
   if (c.action === "add") {
-    return (
-      typeof c.item_id === "string" &&
-      validItemIds.has(c.item_id) &&
-      typeof c.to_date === "string" &&
-      /^\d{4}-\d{2}-\d{2}$/.test(c.to_date) &&
-      (c.scheduled_time_start === undefined ||
-        (typeof c.scheduled_time_start === "string" && /^\d{2}:\d{2}$/.test(c.scheduled_time_start)))
-    );
+    return typeof c.item_id === "string" && validItemIds.has(c.item_id);
   }
   if (c.action === "remove") {
     return typeof c.planned_task_id === "string" && validTaskIds.has(c.planned_task_id);
@@ -75,32 +57,32 @@ function isValidChange(change: unknown, validTaskIds: Set<string>, validItemIds:
   return false;
 }
 
-function buildUserPrompt(body: RefineRequestBody): string {
-  if (body.action === "custom") {
-    const text = body.custom_prompt?.trim() ?? "";
-    return JSON.stringify(
-      {
-        instruction: `The user request: ${text}`,
-        action: "custom",
-        context: body.context,
-      },
-      null,
-      2,
-    );
-  }
+function readNow(raw: unknown): RefineRequestBody["context"]["now"] {
+  if (!raw || typeof raw !== "object") return undefined;
+  const now = raw as Record<string, unknown>;
+  if (typeof now.date !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(now.date)) return undefined;
+  if (typeof now.time !== "string" || !/^\d{2}:\d{2}$/.test(now.time)) return undefined;
+  const zone = typeof now.time_zone === "string" && now.time_zone.trim() ? now.time_zone.trim() : "UTC";
+  return { date: now.date, time: now.time, time_zone: zone.slice(0, 80) };
+}
 
+function buildUserPrompt(body: RefineRequestBody): string {
   const actionLabels: Record<Exclude<RefineApiAction, "custom">, string> = {
-    plan_week: "Plan the week: suggest adds/moves/removes so the week is balanced and realistic.",
-    lighten_day:
-      "Lighten the target day: reduce overload by moving or removing lower-priority planned work.",
+    plan_week: "Plan the week: suggest adds, moves, and removes so the week is balanced and realistic.",
+    lighten_day: "Lighten the target day: move or remove lower-priority planned work.",
     one_hour:
-      "Fit roughly one hour of work tonight (or the target evening): trim or reschedule other tasks so about one hour remains for focused work.",
-    rebalance: "Rebalance the week: spread load more evenly across days using moves/adds/removes as needed.",
+      "Fit roughly one hour of work tonight: trim or reschedule other tasks so about one hour remains.",
+    rebalance: "Rebalance the week: spread the load more evenly across the remaining days.",
   };
+
+  const instruction =
+    body.action === "custom"
+      ? `The user request: ${body.custom_prompt?.trim() ?? ""}`
+      : actionLabels[body.action];
 
   return JSON.stringify(
     {
-      instruction: actionLabels[body.action],
+      instruction,
       action: body.action,
       context: body.context,
     },
@@ -158,66 +140,40 @@ export async function POST(request: Request) {
       week_start: ctx.week_start,
       target_date: typeof ctx.target_date === "string" ? ctx.target_date : undefined,
       available_minutes: typeof ctx.available_minutes === "number" ? ctx.available_minutes : undefined,
+      now: readNow((ctx as { now?: unknown }).now),
     },
   };
 
   const validTaskIds = new Set(reqBody.context.planned_tasks.map((t) => t.id));
   const validItemIds = new Set(reqBody.context.items.map((i) => i.id));
 
-  const userPrompt = buildUserPrompt(reqBody);
+  const completed = await completeStructuredJson(apiKey, {
+    model: MODEL,
+    system: SYSTEM_PROMPT,
+    user: buildUserPrompt(reqBody),
+    schema: REFINE_OUTPUT_SCHEMA as unknown as Record<string, unknown>,
+    maxTokens: 8000,
+  });
 
-  let anthropicJson: unknown;
-  try {
-    const res = await fetch("https://api.anthropic.com/v1/messages", {
-      method: "POST",
-      headers: {
-        "content-type": "application/json",
-        "x-api-key": apiKey,
-        "anthropic-version": "2023-06-01",
-      },
-      body: JSON.stringify({
-        model: MODEL,
-        max_tokens: 8192,
-        system: SYSTEM_PROMPT,
-        messages: [{ role: "user", content: userPrompt }],
-      }),
-    });
-
-    if (!res.ok) {
-      const errText = await res.text();
-      console.error("Anthropic API error:", res.status, errText);
-      return NextResponse.json(
-        { error: "Could not reach the AI service. Try again in a moment." },
-        { status: 502 },
-      );
-    }
-
-    const data = (await res.json()) as {
-      content?: Array<{ type: string; text?: string }>;
-    };
-    const text = (data.content ?? [])
-      .filter((block) => block.type === "text" && typeof block.text === "string")
-      .map((block) => block.text as string)
-      .join("\n")
-      .trim();
-
-    if (!text) {
-      return NextResponse.json({ error: "Empty model response." }, { status: 502 });
-    }
-
-    anthropicJson = extractJsonObject(text);
-  } catch (e) {
-    console.error(e);
-    return NextResponse.json({ error: "Failed to parse AI response." }, { status: 502 });
+  if ("error" in completed) {
+    return NextResponse.json({ error: completed.error }, { status: completed.status });
   }
 
-  if (!anthropicJson || typeof anthropicJson !== "object") {
+  if (!completed.json || typeof completed.json !== "object") {
     return NextResponse.json({ error: "Invalid AI response shape." }, { status: 502 });
   }
 
-  const parsed = anthropicJson as { changes?: unknown; note?: unknown };
+  const parsed = completed.json as { changes?: unknown; note?: unknown };
   const rawChanges = Array.isArray(parsed.changes) ? parsed.changes : [];
-  const changes: RefineChange[] = rawChanges.filter((c) => isValidChange(c, validTaskIds, validItemIds));
+  const changes: RefineChange[] = rawChanges
+    .filter((c) => isValidChange(c, validTaskIds, validItemIds))
+    .map((c) => {
+      if (c.action === "add") return { action: "add", item_id: c.item_id, to_date: c.to_date };
+      if (c.action === "move") {
+        return { action: "move", planned_task_id: c.planned_task_id, to_date: c.to_date };
+      }
+      return { action: "remove", planned_task_id: c.planned_task_id };
+    });
 
   const note =
     typeof parsed.note === "string" && parsed.note.trim().length > 0

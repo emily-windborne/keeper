@@ -104,7 +104,7 @@ export function sanitizeBrainDumpItem(raw: unknown): BrainDumpItemDraft | null {
   if (type === "one_off") {
     frequency_type = null;
     frequency_value = null;
-  } else if (type === "recurring" || type === "goal") {
+  } else if (type === "recurring" || type === "goal" || type === "anchor") {
     const ft =
       typeof o.frequency_type === "string" && FREQ.has(o.frequency_type as Item["frequency_type"])
         ? (o.frequency_type as NonNullable<Item["frequency_type"]>)

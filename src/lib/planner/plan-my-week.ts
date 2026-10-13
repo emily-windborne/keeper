@@ -695,3 +695,47 @@ export function buildPlanMyWeekInputs(
 
   return { inputs: outputs, deferred };
 }
+
+/** One open time for this item. The caller chooses the days. Clock time comes from the rules here. */
+export function suggestSlot(
+  item: Item,
+  candidateDayISOs: string[],
+  existing: PlannedTask[],
+  todayISO: string,
+  now: Date,
+  dayStartMin: number = DEFAULT_DAY_START_MIN,
+): { scheduled_date: string; scheduled_time_start: string; scheduled_time_end: string } | null {
+  const days = candidateDayISOs.filter((iso) => iso >= todayISO);
+  if (days.length === 0) return null;
+  const itemById = new Map<string, Item>([[item.id, item]]);
+  const dayIntervals = new Map<string, { start: number; end: number }[]>();
+  for (const iso of days) dayIntervals.set(iso, []);
+  for (const task of existing) {
+    if (task.status === "done" || task.status === "skipped") continue;
+    if (!dayIntervals.has(task.scheduled_date)) continue;
+    const iv = intervalFromPlannedTask(task, itemById);
+    if (!iv) continue;
+    const list = dayIntervals.get(task.scheduled_date)!;
+    list.push(iv);
+    dayIntervals.set(task.scheduled_date, sortIntervals(list));
+  }
+  const outputs: NewPlannedTaskInput[] = [];
+  const placed = tryPlaceOnDays(
+    item,
+    days.map((_, index) => index),
+    days,
+    todayISO,
+    now,
+    dayStartMin,
+    dayIntervals,
+    days.map(() => 0),
+    outputs,
+  );
+  const first = outputs[0];
+  if (!placed || !first?.scheduled_time_start || !first.scheduled_time_end) return null;
+  return {
+    scheduled_date: first.scheduled_date,
+    scheduled_time_start: first.scheduled_time_start,
+    scheduled_time_end: first.scheduled_time_end,
+  };
+}
