@@ -26,8 +26,6 @@ export default function SettingsPage() {
   const [autoNext, setAutoNext] = useState(true);
   const [morningOn, setMorningOn] = useState(true);
   const [morningTime, setMorningTime] = useState("07:30");
-  const [nightlyOn, setNightlyOn] = useState(true);
-  const [nightlyTime, setNightlyTime] = useState("23:00");
   const [pushOn, setPushOn] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
@@ -44,8 +42,6 @@ export default function SettingsPage() {
       setAutoNext(settings.autoScheduleNext);
       setMorningOn(settings.morningDigestEnabled);
       setMorningTime(minutesToClock(settings.morningDigestMinutes));
-      setNightlyOn(settings.nightlyReminderEnabled);
-      setNightlyTime(minutesToClock(settings.nightlyReminderMinutes));
       const { count, error } = await supabase
         .from("push_subscriptions")
         .select("id", { count: "exact", head: true });
@@ -67,16 +63,12 @@ export default function SettingsPage() {
     if (dayMinutes == null) return "Choose a start time between 12:00 AM and 8:00 PM.";
     const morningMinutes = clockToMinutes(morningTime);
     if (morningMinutes == null) return "Choose a morning time.";
-    const nightlyMinutes = clockToMinutes(nightlyTime);
-    if (nightlyMinutes == null) return "Choose a nightly time.";
     return {
       dayStartMinutes: dayMinutes,
       autoScheduleNext: autoNext,
       timezone: browserTimeZone(),
       morningDigestEnabled: morningOn,
       morningDigestMinutes: morningMinutes,
-      nightlyReminderEnabled: nightlyOn,
-      nightlyReminderMinutes: nightlyMinutes,
     };
   }
 
@@ -149,7 +141,7 @@ export default function SettingsPage() {
         return;
       }
       setPushOn(true);
-      setMessage("Notifications are on. You can switch each one off below.");
+      setMessage("Notifications are on. You can switch the morning note off below.");
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Could not turn on notifications.");
     } finally {
@@ -240,32 +232,9 @@ export default function SettingsPage() {
             onChange={(e) => setMorningTime(e.target.value)}
             className="min-h-11 w-full rounded-[10px] border border-border bg-surface-raised px-4 py-3 text-base text-ink shadow-sm outline-none focus:border-accent/40 focus:ring-2 focus:ring-accent/15"
           />
-          <span className="mt-1.5 block text-xs text-ink-muted">Starts at 7:30 AM in your time zone.</span>
-        </label>
-
-        <label className="mt-6 flex min-h-11 items-start gap-3 text-sm text-ink">
-          <input
-            type="checkbox"
-            className="mt-1 h-5 w-5"
-            checked={nightlyOn}
-            onChange={(e) => setNightlyOn(e.target.checked)}
-          />
-          <span>
-            Nightly check-in
-            <span className="mt-1 block text-xs text-ink-muted">
-              Says &quot;Time for your nightly check-in.&quot; Tapping it opens the check-in.
-            </span>
+          <span className="mt-1.5 block text-xs text-ink-muted">
+            Starts at 7:30 AM in your time zone. It goes out once each morning, after this time.
           </span>
-        </label>
-        <label className="mt-3 block">
-          <span className="mb-2 block text-sm font-medium text-ink">Nightly time</span>
-          <input
-            type="time"
-            value={nightlyTime}
-            onChange={(e) => setNightlyTime(e.target.value)}
-            className="min-h-11 w-full rounded-[10px] border border-border bg-surface-raised px-4 py-3 text-base text-ink shadow-sm outline-none focus:border-accent/40 focus:ring-2 focus:ring-accent/15"
-          />
-          <span className="mt-1.5 block text-xs text-ink-muted">Starts at 11:00 PM in your time zone.</span>
         </label>
       </section>
 

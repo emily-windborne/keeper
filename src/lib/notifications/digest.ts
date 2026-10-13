@@ -1,6 +1,4 @@
 export const MORNING_DEFAULT_MINUTES = 7 * 60 + 30;
-export const NIGHTLY_DEFAULT_MINUTES = 23 * 60;
-export const SEND_WINDOW_MINUTES = 20;
 
 export function morningDigestBody(titles: string[]): string {
   if (titles.length === 0) return "Today: nothing scheduled.";
@@ -17,18 +15,11 @@ export function orderedTitles(tasks: { title: string; start: string | null }[]):
     .map((task) => task.title);
 }
 
-/** True when local time has reached the chosen minute and the send window is still open. */
-export function isInsideSendWindow(
-  nowMinutes: number,
-  targetMinutes: number,
-  windowMinutes = SEND_WINDOW_MINUTES,
-): boolean {
+/** True once local time has reached the chosen morning minute. The daily job may run later. */
+export function hasReachedLocalTime(nowMinutes: number, targetMinutes: number): boolean {
   if (nowMinutes < 0 || nowMinutes >= 24 * 60) return false;
   if (targetMinutes < 0 || targetMinutes >= 24 * 60) return false;
-  const end = targetMinutes + windowMinutes;
-  if (end <= 24 * 60) return nowMinutes >= targetMinutes && nowMinutes < end;
-  const wrapped = end % (24 * 60);
-  return nowMinutes >= targetMinutes || nowMinutes < wrapped;
+  return nowMinutes >= targetMinutes;
 }
 
 export function zonedClock(now: Date, timeZone: string): { date: string; minutes: number } | null {

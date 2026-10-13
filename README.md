@@ -21,12 +21,9 @@ Run the SQL files in `supabase/migrations` in filename order in the Supabase SQL
 
 Settings has a Notifications section. On iPhone, add Keeper to the home screen, open it from that icon, then tap Turn on notifications. A normal Safari tab cannot ask for permission.
 
-Keeper can send two notes, and each one can be switched off:
+Keeper sends one morning note. It can be switched off. It starts at 7:30 AM in your time zone. Example: "Today: 4 things. Start with Yoga." Tapping it opens today.
 
-- A morning note, starting at 7:30 AM in your time zone. Example: "Today: 4 things. Start with Yoga." Tapping it opens today.
-- A nightly note, starting at 11:00 PM. It says "Time for your nightly check-in." Tapping it opens the check-in.
-
-There is no alert at a task's exact time, and no alert the day before. Tomorrow's list is only inside the check-in, under Preview tomorrow.
+There is no 11 PM reminder, no alert at a task's exact time, and no alert the day before. Tomorrow's list is only inside the check-in, under Preview tomorrow.
 
 Add these in Vercel (Project Settings, Environment Variables), then redeploy:
 
@@ -35,7 +32,7 @@ Add these in Vercel (Project Settings, Environment Variables), then redeploy:
 - `CRON_SECRET`, a long password you make up
 - `SUPABASE_SERVICE_ROLE_KEY`, the service_role key from Supabase. Do not put this key in a name that starts with `NEXT_PUBLIC_`.
 
-`vercel.json` asks Vercel to run the sender every 15 minutes. The free Hobby plan only allows a job once a day, and that deploy is rejected. The Pro plan is what makes a 7:30 AM note and an 11:00 PM note both arrive. If the deploy says Hobby accounts are limited to daily cron jobs, upgrade the project to Pro and redeploy.
+`vercel.json` runs the sender once a day at 16:00 UTC. That fits the free Hobby plan, which only allows a job once a day and may start it any time during that hour. 16:00 UTC is 9:00 AM Pacific during daylight saving and 8:00 AM Pacific in winter, so a 7:30 AM setting has already passed when the job runs. It will not land on 7:30 exactly. If you live far from the US West Coast, change the `16` in `vercel.json` to a UTC hour that is after your morning.
 
 ### Hot reload / Fast Refresh
 

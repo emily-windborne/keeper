@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
-  isInsideSendWindow,
+  hasReachedLocalTime,
   morningDigestBody,
   orderedTitles,
   zonedClock,
@@ -24,11 +24,10 @@ test("the earliest timed task is the one to start with", () => {
   );
 });
 
-test("a send only happens in the window after the chosen time", () => {
-  assert.equal(isInsideSendWindow(7 * 60 + 30, 7 * 60 + 30), true);
-  assert.equal(isInsideSendWindow(7 * 60 + 45, 7 * 60 + 30), true);
-  assert.equal(isInsideSendWindow(7 * 60 + 29, 7 * 60 + 30), false);
-  assert.equal(isInsideSendWindow(8 * 60, 7 * 60 + 30), false);
+test("the morning note waits until the chosen time, then can still go out later", () => {
+  assert.equal(hasReachedLocalTime(7 * 60 + 30, 7 * 60 + 30), true);
+  assert.equal(hasReachedLocalTime(9 * 60, 7 * 60 + 30), true);
+  assert.equal(hasReachedLocalTime(7 * 60 + 29, 7 * 60 + 30), false);
 });
 
 test("the clock is read in the saved timezone", () => {

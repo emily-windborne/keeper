@@ -5,10 +5,7 @@ alter table public.user_settings
   add column if not exists timezone text,
   add column if not exists morning_digest_enabled boolean not null default true,
   add column if not exists morning_digest_minutes integer not null default 450,
-  add column if not exists nightly_reminder_enabled boolean not null default true,
-  add column if not exists nightly_reminder_minutes integer not null default 1380,
-  add column if not exists morning_digest_sent_on date,
-  add column if not exists nightly_reminder_sent_on date;
+  add column if not exists morning_digest_sent_on date;
 
 alter table public.user_settings
   drop constraint if exists user_settings_morning_minutes_check;
@@ -16,13 +13,6 @@ alter table public.user_settings
 alter table public.user_settings
   add constraint user_settings_morning_minutes_check
   check (morning_digest_minutes >= 0 and morning_digest_minutes < 24 * 60);
-
-alter table public.user_settings
-  drop constraint if exists user_settings_nightly_minutes_check;
-
-alter table public.user_settings
-  add constraint user_settings_nightly_minutes_check
-  check (nightly_reminder_minutes >= 0 and nightly_reminder_minutes < 24 * 60);
 
 create table if not exists public.push_subscriptions (
   id uuid primary key default gen_random_uuid(),

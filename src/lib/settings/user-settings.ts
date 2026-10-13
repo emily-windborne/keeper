@@ -1,8 +1,5 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
-import {
-  MORNING_DEFAULT_MINUTES,
-  NIGHTLY_DEFAULT_MINUTES,
-} from "@/lib/notifications/digest";
+import { MORNING_DEFAULT_MINUTES } from "@/lib/notifications/digest";
 import { DEFAULT_DAY_START_MIN } from "@/lib/planner/plan-my-week";
 
 export type UserSettings = {
@@ -11,8 +8,6 @@ export type UserSettings = {
   timezone: string | null;
   morningDigestEnabled: boolean;
   morningDigestMinutes: number;
-  nightlyReminderEnabled: boolean;
-  nightlyReminderMinutes: number;
 };
 
 export const DEFAULT_USER_SETTINGS: UserSettings = {
@@ -21,8 +16,6 @@ export const DEFAULT_USER_SETTINGS: UserSettings = {
   timezone: null,
   morningDigestEnabled: true,
   morningDigestMinutes: MORNING_DEFAULT_MINUTES,
-  nightlyReminderEnabled: true,
-  nightlyReminderMinutes: NIGHTLY_DEFAULT_MINUTES,
 };
 
 function clampDayStart(value: unknown): number {
@@ -61,8 +54,6 @@ export async function loadUserSettings(supabase: SupabaseClient): Promise<UserSe
     timezone?: string | null;
     morning_digest_enabled?: boolean;
     morning_digest_minutes?: number;
-    nightly_reminder_enabled?: boolean;
-    nightly_reminder_minutes?: number;
   };
   return {
     dayStartMinutes: clampDayStart(row.day_start_minutes),
@@ -70,8 +61,6 @@ export async function loadUserSettings(supabase: SupabaseClient): Promise<UserSe
     timezone: typeof row.timezone === "string" && row.timezone.trim() ? row.timezone : null,
     morningDigestEnabled: row.morning_digest_enabled !== false,
     morningDigestMinutes: clampClock(row.morning_digest_minutes, MORNING_DEFAULT_MINUTES),
-    nightlyReminderEnabled: row.nightly_reminder_enabled !== false,
-    nightlyReminderMinutes: clampClock(row.nightly_reminder_minutes, NIGHTLY_DEFAULT_MINUTES),
   };
 }
 
@@ -87,12 +76,10 @@ export async function saveUserSettings(
     timezone: settings.timezone,
     morning_digest_enabled: settings.morningDigestEnabled,
     morning_digest_minutes: clampClock(settings.morningDigestMinutes, MORNING_DEFAULT_MINUTES),
-    nightly_reminder_enabled: settings.nightlyReminderEnabled,
-    nightly_reminder_minutes: clampClock(settings.nightlyReminderMinutes, NIGHTLY_DEFAULT_MINUTES),
     updated_at: new Date().toISOString(),
   });
   if (!error) return null;
-  if (/user_settings|morning_digest|nightly_reminder|timezone/i.test(error.message)) {
+  if (/user_settings|morning_digest|timezone/i.test(error.message)) {
     return "Settings need a database update. Run supabase/migrations/008_notifications.sql, then try again.";
   }
   return error.message;

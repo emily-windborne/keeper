@@ -2,7 +2,7 @@ import { createClient } from "@supabase/supabase-js";
 import webpush from "web-push";
 import { getSupabasePublicEnv } from "@/lib/supabase-public-env";
 import {
-  isInsideSendWindow,
+  hasReachedLocalTime,
   morningDigestBody,
   orderedTitles,
   zonedClock,
@@ -15,10 +15,7 @@ type SettingsRow = {
   timezone: string | null;
   morning_digest_enabled: boolean;
   morning_digest_minutes: number;
-  nightly_reminder_enabled: boolean;
-  nightly_reminder_minutes: number;
   morning_digest_sent_on: string | null;
-  nightly_reminder_sent_on: string | null;
 };
 
 type SubscriptionRow = {
@@ -68,7 +65,7 @@ export async function GET(request: Request) {
     supabase
       .from("user_settings")
       .select(
-        "user_id, timezone, morning_digest_enabled, morning_digest_minutes, nightly_reminder_enabled, nightly_reminder_minutes, morning_digest_sent_on, nightly_reminder_sent_on",
+        "user_id, timezone, morning_digest_enabled, morning_digest_minutes, morning_digest_sent_on",
       ),
     supabase.from("push_subscriptions").select("id, user_id, endpoint, p256dh, auth"),
   ]);
@@ -119,9 +116,9 @@ export async function GET(request: Request) {
     if (
       row.morning_digest_enabled &&
       row.morning_digest_sent_on !== clock.date &&
-      isInsideSendWindow(clock.minutes, row.morning_digest_minutes)
+      hasReachedLocalTime(clock.minutes, row.morning_digest_minutes)
     ) {
-      const claimed = await claim(supabase, row.user_id, "morning_digest_sent_on", clock.date);
+      const claimed = await claim(supabase, row.user_id, clock.date);
       if (claimed) {
         const titles = orderedTitles(
           (tasksByUserDate.get(`${row.user_id}:${clock.date}`) ?? []).map((task) => ({
@@ -135,24 +132,7 @@ export async function GET(request: Request) {
           url: "/?today=1",
         });
         if (ok) sent += 1;
-        else await claim(supabase, row.user_id, "morning_digest_sent_on", null);
-      }
-    }
-
-    if (
-      row.nightly_reminder_enabled &&
-      row.nightly_reminder_sent_on !== clock.date &&
-      isInsideSendWindow(clock.minutes, row.nightly_reminder_minutes)
-    ) {
-      const claimed = await claim(supabase, row.user_id, "nightly_reminder_sent_on", clock.date);
-      if (claimed) {
-        const ok = await deliver(supabase, subs, {
-          title: "Check-in",
-          body: "Time for your nightly check-in.",
-          url: "/check-in",
-        });
-        if (ok) sent += 1;
-        else await claim(supabase, row.user_id, "nightly_reminder_sent_on", null);
+        else await claim(supabase, row.user_id, null);
       }
     }
   }
@@ -163,10 +143,10 @@ export async function GET(request: Request) {
 async function claim(
   supabase: ReturnType<typeof serviceClient>,
   userId: string,
-  column: "morning_digest_sent_on" | "nightly_reminder_sent_on",
   date: string | null,
 ): Promise<boolean> {
   if (!supabase) return false;
+  const column = "morning_digest_sent_on";
   const update = supabase.from("user_settings").update({ [column]: date }).eq("user_id", userId);
   const filtered = date ? update.or(`${column}.is.null,${column}.neq.${date}`) : update;
   const { data, error } = await filtered.select("user_id");
