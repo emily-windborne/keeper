@@ -2,7 +2,8 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import type { Item } from "@/data/inventory-mock";
 import type { PlannedTask } from "@/lib/db/map-rows";
-import { buildPlanMyWeekInputs } from "@/lib/planner/plan-my-week";
+import { buildPlanMyWeekInputs, suggestSlot } from "@/lib/planner/plan-my-week";
+import type { ProtectedWindow } from "@/lib/planner/protected-time";
 
 const WEEK = [
   "2026-10-12",
@@ -304,4 +305,105 @@ test("a routine marker does not block a task at the same time", () => {
   assert.equal(call?.scheduled_date, "2026-10-13");
   assert.equal(call?.scheduled_time_start, "09:00");
   assert.equal(result.inputs.some((t) => t.item_id === "skin"), false);
+});
+
+const PROTECTED: ProtectedWindow[] = [
+  {
+    id: "school",
+    name: "Morning school run",
+    days: ["monday", "tuesday", "wednesday", "thursday", "friday"],
+    startMin: 7 * 60 + 30,
+    endMin: 9 * 60,
+  },
+  {
+    id: "dinner",
+    name: "Dinner & bedtime",
+    days: ["monday", "tuesday", "wednesday", "thursday", "friday"],
+    startMin: 18 * 60 + 30,
+    endMin: 20 * 60 + 30,
+  },
+];
+
+function overlapsProtected(start: string, end: string): boolean {
+  const a = minutes(start);
+  const b = minutes(end);
+  return PROTECTED.some((window) => a < window.endMin && b > window.startMin);
+}
+
+test("a flexible task skips the school run, and a named 7:45 stays inside it", () => {
+  const early = new Date(2026, 9, 13, 6, 0, 0, 0);
+  const options = {
+    now: early,
+    dayStartMin: 6 * 60,
+    wakeMin: 8 * 60,
+    windDownMin: 22 * 60,
+    protectedWindows: PROTECTED,
+  };
+  const flexible = buildPlanMyWeekInputs(
+    [item({ id: "walk", title: "Walk", flexibility: "Flexible anytime", estimated_minutes: 30, times_per_period: 1 })],
+    [],
+    WEEK,
+    TODAY,
+    options,
+  );
+  const walk = flexible.inputs.find((task) => task.scheduled_date === TODAY);
+  assert.ok(walk?.scheduled_time_start && walk.scheduled_time_end);
+  assert.equal(overlapsProtected(walk.scheduled_time_start, walk.scheduled_time_end), false);
+  assert.ok(minutes(walk.scheduled_time_start) >= 9 * 60);
+
+  const named = buildPlanMyWeekInputs(
+    [
+      item({
+        id: "dropoff",
+        title: "Drop-off",
+        type: "one_off",
+        flexibility: "Fixed",
+        fixed_start_time: "07:45",
+        estimated_minutes: 15,
+        next_due_date: "2026-10-13T12:00:00.000Z",
+      }),
+    ],
+    [],
+    WEEK,
+    TODAY,
+    options,
+  );
+  assert.equal(named.inputs[0]?.scheduled_time_start, "07:45");
+  assert.equal(named.inputs[0]?.scheduled_time_end, "08:00");
+});
+
+test("Ask Keeper will not use dinner when the earlier evening is taken", () => {
+  const booked: PlannedTask = {
+    id: "piano",
+    item_id: "piano",
+    title_snapshot: "Piano",
+    scheduled_date: TODAY,
+    scheduled_time_start: "17:00",
+    scheduled_time_end: "18:30",
+    status: "planned",
+    priority_override: null,
+    notes: null,
+    created_at: "",
+    updated_at: "",
+  };
+  const slot = suggestSlot(
+    item({
+      id: "read",
+      title: "Read",
+      preferred_time_of_day: "evening",
+      flexibility: "Preferred window",
+      estimated_minutes: 30,
+    }),
+    [TODAY],
+    [booked],
+    TODAY,
+    NOW,
+    6 * 60,
+    8 * 60,
+    22 * 60,
+    PROTECTED,
+  );
+  assert.ok(slot);
+  assert.equal(overlapsProtected(slot.scheduled_time_start, slot.scheduled_time_end), false);
+  assert.ok(minutes(slot.scheduled_time_start) >= 20 * 60 + 30);
 });

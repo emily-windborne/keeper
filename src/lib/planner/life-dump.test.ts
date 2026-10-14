@@ -11,6 +11,7 @@ import {
   type LifeClock,
   type PlacedLife,
 } from "@/lib/planner/life-dump";
+import type { ProtectedWindow } from "@/lib/planner/protected-time";
 
 const CLOCK: LifeClock = {
   todayISO: "2026-10-13",
@@ -143,4 +144,61 @@ test("a 10 PM errand is rejected and put back inside business hours", () => {
   assert.ok(fixed);
   assert.ok(fixed.startMin >= 9 * 60 && fixed.endMin <= 17 * 60);
   assert.ok(fixed.startMin >= 8 * 60 && fixed.endMin <= 22 * 60);
+});
+
+const PROTECTED: ProtectedWindow[] = [
+  {
+    id: "school",
+    name: "Morning school run",
+    days: ["monday", "tuesday", "wednesday", "thursday", "friday"],
+    startMin: 7 * 60 + 30,
+    endMin: 9 * 60,
+  },
+  {
+    id: "dinner",
+    name: "Dinner & bedtime",
+    days: ["monday", "tuesday", "wednesday", "thursday", "friday"],
+    startMin: 18 * 60 + 30,
+    endMin: 20 * 60 + 30,
+  },
+];
+
+test("a named evening meeting can sit inside protected time", () => {
+  const rows = scheduleLifeDump("meeting tomorrow at 7 PM.", { ...CLOCK, protectedWindows: PROTECTED });
+  const meeting = rows.find((row) => row.stated);
+  assert.ok(meeting);
+  assert.equal(meeting.dateISO, "2026-10-14");
+  assert.equal(meeting.startMin, 19 * 60);
+});
+
+test("a flexible errand stays out of protected time, and a planted one is moved", () => {
+  const clock = {
+    ...CLOCK,
+    protectedWindows: [
+      ...PROTECTED,
+      {
+        id: "lunch",
+        name: "Lunch",
+        days: ["wednesday"],
+        startMin: 12 * 60,
+        endMin: 13 * 60,
+      },
+    ],
+  };
+  const rows = scheduleLifeDump("fold the laundry tomorrow.", clock);
+  const laundry = rows[0];
+  assert.ok(laundry);
+  assert.ok(!(laundry.startMin < 13 * 60 && laundry.endMin > 12 * 60));
+  const intents = interpretLifeDump(EMILY_WEEK_DUMP, clock);
+  const bad = scheduleLifeDump(EMILY_WEEK_DUMP, clock).map((row) =>
+    row.title === "Ship package at UPS"
+      ? { ...row, dateISO: "2026-10-14", startMin: 19 * 60, endMin: 19 * 60 + 30 }
+      : row,
+  );
+  const checked = validatePlacements(bad, intents, clock);
+  assert.ok(checked.problems.some((problem) => problem.reason.includes("Dinner")));
+  const fixed = checked.fixed.find((row) => row.title === "Ship package at UPS");
+  assert.ok(fixed);
+  const insideDinner = fixed.startMin < 20 * 60 + 30 && fixed.endMin > 18 * 60 + 30;
+  assert.equal(insideDinner, false);
 });

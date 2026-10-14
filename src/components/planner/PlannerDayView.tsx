@@ -4,6 +4,8 @@ import type { Item } from "@/data/inventory-mock";
 import type { PlannedTask } from "@/lib/db/map-rows";
 import { CategoryIcon } from "@/components/CategoryIcon";
 import { consumeBackgroundClick, DragBlock } from "@/components/planner/DragBlock";
+import { ProtectedBands } from "@/components/planner/ProtectedBands";
+import type { ProtectedWindow } from "@/lib/planner/protected-time";
 import { timeStartToHour, parseTimeToMinutesSinceMidnight } from "@/components/planner/planner-view-utils";
 import { formatClock, formatClockRange } from "@/lib/planner/clock-label";
 import { minutesFromPointerY, minutesToHHMM, TIMELINE_END_MIN, TIMELINE_START_MIN } from "@/lib/planner/time-snap";
@@ -64,6 +66,7 @@ export function PlannerDayView({
   tasks,
   itemById,
   dateISO,
+  protectedWindows = [],
   onOpenTask,
   onCommitSchedule,
   onCreateAt,
@@ -71,6 +74,7 @@ export function PlannerDayView({
   tasks: PlannedTask[];
   itemById: Map<string, Item>;
   dateISO: string;
+  protectedWindows?: ProtectedWindow[];
   onOpenTask: (taskId: string) => void;
   onCommitSchedule: (
     taskId: string,
@@ -260,6 +264,13 @@ export function PlannerDayView({
               style={{ top: i * HOUR_PX }}
             />
           ))}
+          <ProtectedBands
+            windows={protectedWindows}
+            dateISO={dateISO}
+            timelineStartMin={TIMELINE_START_MIN}
+            timelineEndMin={TIMELINE_END_MIN}
+            hourPx={HOUR_PX}
+          />
           {layoutDayBlocks(timedBlocks).map(({ task, item, startMin, endMin, lane, laneCount, heightPx, top }) => {
             const editable = task.status !== "done" && task.status !== "skipped";
             const when = formatClockRange(minutesToHHMM(startMin), minutesToHHMM(endMin));
