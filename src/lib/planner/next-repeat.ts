@@ -2,7 +2,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Item } from "@/data/inventory-mock";
 import type { PlannedTask, NewPlannedTaskInput } from "@/lib/db/map-rows";
 import { applyPlanMyWeek } from "@/lib/planner/apply-plan-my-week";
-import { buildPlanMyWeekInputs, DEFAULT_DAY_START_MIN } from "@/lib/planner/plan-my-week";
+import { buildPlanMyWeekInputs, DEFAULT_DAY_START_MIN, type PlanScheduleOptions } from "@/lib/planner/plan-my-week";
 
 function addDaysISO(iso: string, days: number): string {
   const d = new Date(`${iso}T12:00:00`);
@@ -25,6 +25,7 @@ export function buildNextRepeatInputs(
   todayISO: string,
   now: Date = new Date(),
   dayStartMin: number = DEFAULT_DAY_START_MIN,
+  schedule?: PlanScheduleOptions,
 ): NewPlannedTaskInput[] {
   const horizonEnd = addDaysISO(todayISO, 13);
   const horizon = Array.from({ length: 14 }, (_, i) => addDaysISO(todayISO, i));
@@ -44,7 +45,11 @@ export function buildNextRepeatInputs(
   });
   if (waiting.length === 0) return [];
   const stillOpen = existing.filter((task) => task.status !== "done" && task.status !== "skipped");
-  return buildPlanMyWeekInputs(waiting, stillOpen, horizon, todayISO, { now, dayStartMin }).inputs;
+  return buildPlanMyWeekInputs(waiting, stillOpen, horizon, todayISO, {
+    now,
+    dayStartMin,
+    ...schedule,
+  }).inputs;
 }
 
 /** Write the next open repeats. Does not move due dates for items that will not fit. */
@@ -55,8 +60,9 @@ export async function saveNextRepeats(
   todayISO: string,
   now: Date = new Date(),
   dayStartMin: number = DEFAULT_DAY_START_MIN,
+  schedule?: PlanScheduleOptions,
 ): Promise<{ tasks: PlannedTask[]; error: string | null }> {
-  const inputs = buildNextRepeatInputs(items, existing, todayISO, now, dayStartMin);
+  const inputs = buildNextRepeatInputs(items, existing, todayISO, now, dayStartMin, schedule);
   if (inputs.length === 0) return { tasks: [], error: null };
   return applyPlanMyWeek(supabase, inputs, []);
 }

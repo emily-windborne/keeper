@@ -11,6 +11,7 @@ export type JsonCompletion = {
   user: string;
   schema: Record<string, unknown>;
   maxTokens?: number;
+  effort?: "low" | "medium" | "high" | "xhigh";
 };
 
 /**
@@ -39,7 +40,7 @@ export async function completeStructuredJson(
           system: input.system,
           messages: [{ role: "user", content: input.user }],
           output_config: {
-            effort: "medium",
+            effort: input.effort ?? "medium",
             format: { type: "json_schema", schema: input.schema },
           },
         }),

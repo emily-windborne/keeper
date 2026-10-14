@@ -1,5 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { MORNING_DEFAULT_MINUTES } from "@/lib/notifications/digest";
+import { DEFAULT_WAKE_MIN, DEFAULT_WIND_MIN } from "@/lib/planner/life-dump";
 import { DEFAULT_DAY_START_MIN } from "@/lib/planner/plan-my-week";
 
 export type UserSettings = {
@@ -8,6 +9,8 @@ export type UserSettings = {
   timezone: string | null;
   morningDigestEnabled: boolean;
   morningDigestMinutes: number;
+  wakeMinutes: number;
+  windDownMinutes: number;
 };
 
 export const DEFAULT_USER_SETTINGS: UserSettings = {
@@ -16,6 +19,8 @@ export const DEFAULT_USER_SETTINGS: UserSettings = {
   timezone: null,
   morningDigestEnabled: true,
   morningDigestMinutes: MORNING_DEFAULT_MINUTES,
+  wakeMinutes: DEFAULT_WAKE_MIN,
+  windDownMinutes: DEFAULT_WIND_MIN,
 };
 
 function clampDayStart(value: unknown): number {
@@ -54,6 +59,8 @@ export async function loadUserSettings(supabase: SupabaseClient): Promise<UserSe
     timezone?: string | null;
     morning_digest_enabled?: boolean;
     morning_digest_minutes?: number;
+    wake_minutes?: number;
+    wind_down_minutes?: number;
   };
   return {
     dayStartMinutes: clampDayStart(row.day_start_minutes),
@@ -61,6 +68,8 @@ export async function loadUserSettings(supabase: SupabaseClient): Promise<UserSe
     timezone: typeof row.timezone === "string" && row.timezone.trim() ? row.timezone : null,
     morningDigestEnabled: row.morning_digest_enabled !== false,
     morningDigestMinutes: clampClock(row.morning_digest_minutes, MORNING_DEFAULT_MINUTES),
+    wakeMinutes: clampClock(row.wake_minutes, DEFAULT_WAKE_MIN),
+    windDownMinutes: clampClock(row.wind_down_minutes, DEFAULT_WIND_MIN),
   };
 }
 
@@ -76,9 +85,14 @@ export async function saveUserSettings(
     timezone: settings.timezone,
     morning_digest_enabled: settings.morningDigestEnabled,
     morning_digest_minutes: clampClock(settings.morningDigestMinutes, MORNING_DEFAULT_MINUTES),
+    wake_minutes: clampClock(settings.wakeMinutes, DEFAULT_WAKE_MIN),
+    wind_down_minutes: clampClock(settings.windDownMinutes, DEFAULT_WIND_MIN),
     updated_at: new Date().toISOString(),
   });
   if (!error) return null;
+  if (/wake_minutes|wind_down/i.test(error.message)) {
+    return "Settings need a database update. Run supabase/migrations/009_my_day.sql, then try again.";
+  }
   if (/user_settings|morning_digest|timezone/i.test(error.message)) {
     return "Settings need a database update. Run supabase/migrations/008_notifications.sql, then try again.";
   }

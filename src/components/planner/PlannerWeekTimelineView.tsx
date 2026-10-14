@@ -4,6 +4,8 @@ import { Fragment, useEffect, useMemo, useState } from "react";
 import type { Item } from "@/data/inventory-mock";
 import type { PlannedTask } from "@/lib/db/map-rows";
 import { consumeBackgroundClick, DragBlock } from "@/components/planner/DragBlock";
+import { ProtectedBands } from "@/components/planner/ProtectedBands";
+import type { ProtectedWindow } from "@/lib/planner/protected-time";
 import { parseTimeToMinutesSinceMidnight, toISODate } from "@/components/planner/planner-view-utils";
 import { formatClockRange } from "@/lib/planner/clock-label";
 import { minutesFromPointerY, minutesToHHMM } from "@/lib/planner/time-snap";
@@ -137,6 +139,7 @@ export function PlannerWeekTimelineView({
   onCommitSchedule,
   onCreateAt,
   onOpenDay,
+  protectedWindows = [],
 }: {
   weekDays: Date[];
   plannedTasks: PlannedTask[];
@@ -151,6 +154,7 @@ export function PlannerWeekTimelineView({
   ) => void;
   onCreateAt: (dateISO: string, timeHHMM: string) => void;
   onOpenDay: (dateISO: string) => void;
+  protectedWindows?: ProtectedWindow[];
 }) {
   const weekISOs = useMemo(() => weekDays.map((d) => toISODate(d)), [weekDays]);
   const { nowMin, nowMs } = usePlannerNow();
@@ -386,6 +390,15 @@ export function PlannerWeekTimelineView({
                   </button>
                 ) : null}
               </div>
+
+              <ProtectedBands
+                windows={protectedWindows}
+                dateISO={iso}
+                timelineStartMin={timelineStartMin}
+                timelineEndMin={timelineEndMin}
+                hourPx={HOUR_PX}
+                topOffset={timelineTop}
+              />
 
               {/* Spine: 6am–11pm only */}
               <div

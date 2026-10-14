@@ -3,7 +3,11 @@
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@lib/supabase";
+import { ProtectedTimeFields } from "@/components/settings/ProtectedTimeFields";
+import type { ProtectedWindow } from "@/lib/planner/protected-time";
+import { loadProtectedTimes } from "@/lib/settings/protected-times";
 import { clockToMinutes, minutesToClock } from "@/lib/notifications/digest";
+import { DEFAULT_WAKE_MIN, DEFAULT_WIND_MIN } from "@/lib/planner/life-dump";
 import { formatClock } from "@/lib/planner/clock-label";
 import {
   browserTimeZone,
@@ -27,22 +31,34 @@ export default function SettingsPage() {
   const [autoNext, setAutoNext] = useState(true);
   const [morningOn, setMorningOn] = useState(true);
   const [morningTime, setMorningTime] = useState("07:30");
+  const [wakeTime, setWakeTime] = useState("08:00");
+  const [windTime, setWindTime] = useState("22:00");
   const [pushOn, setPushOn] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [turningOn, setTurningOn] = useState(false);
   const [needsHomeScreen, setNeedsHomeScreen] = useState(false);
+  const [userId, setUserId] = useState<string | null>(null);
+  const [protectedWindows, setProtectedWindows] = useState<ProtectedWindow[]>([]);
 
   useEffect(() => {
     setNeedsHomeScreen(isIphoneWithoutHomeScreen());
     let cancelled = false;
     void (async () => {
-      const settings = await loadUserSettings(supabase);
+      const [settings, windows, userRes] = await Promise.all([
+        loadUserSettings(supabase),
+        loadProtectedTimes(supabase),
+        supabase.auth.getUser(),
+      ]);
       if (cancelled) return;
+      setProtectedWindows(windows);
+      setUserId(userRes.data.user?.id ?? null);
       setDayStart(minutesToHHMM(settings.dayStartMinutes));
       setAutoNext(settings.autoScheduleNext);
       setMorningOn(settings.morningDigestEnabled);
       setMorningTime(minutesToClock(settings.morningDigestMinutes));
+      setWakeTime(minutesToClock(settings.wakeMinutes));
+      setWindTime(minutesToClock(settings.windDownMinutes));
       const { count, error } = await supabase
         .from("push_subscriptions")
         .select("id", { count: "exact", head: true });
@@ -64,12 +80,19 @@ export default function SettingsPage() {
     if (dayMinutes == null) return "Choose a start time between 12:00 AM and 8:00 PM.";
     const morningMinutes = clockToMinutes(morningTime);
     if (morningMinutes == null) return "Choose a morning time.";
+    const wakeMinutes = clockToMinutes(wakeTime);
+    const windMinutes = clockToMinutes(windTime);
+    if (wakeMinutes == null || windMinutes == null || windMinutes <= wakeMinutes) {
+      return "Wind-down has to be later than wake time.";
+    }
     return {
       dayStartMinutes: dayMinutes,
       autoScheduleNext: autoNext,
       timezone: browserTimeZone(),
       morningDigestEnabled: morningOn,
       morningDigestMinutes: morningMinutes,
+      wakeMinutes,
+      windDownMinutes: windMinutes,
     };
   }
 
@@ -186,6 +209,40 @@ export default function SettingsPage() {
           </span>
         </span>
       </label>
+
+      <section className="mb-8 max-w-sm" aria-labelledby="my-day-heading">
+        <h2 id="my-day-heading" className="font-serif text-[22px] font-normal text-ink">
+          My day
+        </h2>
+        <p className="mt-2 text-[13px] leading-relaxed text-ink-muted">
+          Ordinary tasks stay between these times. Something you set to an exact time can sit outside them. The starting point is {formatClock(minutesToClock(DEFAULT_WAKE_MIN))} to {formatClock(minutesToClock(DEFAULT_WIND_MIN))}.
+        </p>
+        <label className="mt-4 block">
+          <span className="mb-2 block text-sm font-medium text-ink">Wake time {formatClock(wakeTime)}</span>
+          <input
+            type="time"
+            value={wakeTime}
+            onChange={(e) => setWakeTime(e.target.value)}
+            className="min-h-11 w-full rounded-[10px] border border-border bg-surface-raised px-4 py-3 text-base text-ink shadow-sm outline-none focus:border-accent/40 focus:ring-2 focus:ring-accent/15"
+          />
+        </label>
+        <label className="mt-4 block">
+          <span className="mb-2 block text-sm font-medium text-ink">Wind-down {formatClock(windTime)}</span>
+          <input
+            type="time"
+            value={windTime}
+            onChange={(e) => setWindTime(e.target.value)}
+            className="min-h-11 w-full rounded-[10px] border border-border bg-surface-raised px-4 py-3 text-base text-ink shadow-sm outline-none focus:border-accent/40 focus:ring-2 focus:ring-accent/15"
+          />
+        </label>
+        <ProtectedTimeFields
+          supabase={supabase}
+          userId={userId}
+          windows={protectedWindows}
+          onChange={setProtectedWindows}
+          onMessage={setMessage}
+        />
+      </section>
 
       <section className="mb-8 max-w-sm" aria-labelledby="notifications-heading">
         <h2 id="notifications-heading" className="font-serif text-[22px] font-normal text-ink">

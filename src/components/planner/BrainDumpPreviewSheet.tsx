@@ -11,7 +11,7 @@ import type {
   FrequencyType,
 } from "@/data/inventory-mock";
 import type { BrainDumpItemDraft } from "@/lib/api/brain-dump-types";
-import { formatClocksInText } from "@/lib/planner/clock-label";
+import { formatClockRange, formatClocksInText, formatDayAndRange } from "@/lib/planner/clock-label";
 import { formatPreferredDays, parsePreferredDaysInput } from "@/lib/inventory/preferred-days";
 import { CategoryIcon } from "@/components/CategoryIcon";
 
@@ -52,6 +52,20 @@ const CAD: ItemCadencePressure[] = [
 ];
 
 type LocalDraft = BrainDumpItemDraft & { _key: string };
+
+function dateInputValue(nextDue: string | null): string {
+  return nextDue?.match(/^(\d{4}-\d{2}-\d{2})/)?.[1] ?? "";
+}
+
+function endClock(start: string | null, minutes: number): string | null {
+  if (!start) return null;
+  const match = start.match(/^(\d{1,2}):(\d{2})$/);
+  if (!match) return null;
+  const total = Number(match[1]) * 60 + Number(match[2]) + minutes;
+  const hour = Math.floor(total / 60) % 24;
+  const minute = total % 60;
+  return `${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}`;
+}
 
 function clampEstimatedMinutes(n: number): number {
   return Math.min(24 * 60, Math.max(5, Math.round(n)));
@@ -212,6 +226,54 @@ export function BrainDumpPreviewSheet({
                       >
                         Remove
                       </button>
+                    </div>
+
+                    {dateInputValue(d.next_due_date) ? (
+                      <p className="mb-3 text-[15px] font-semibold text-ink">
+                        {formatDayAndRange(
+                          dateInputValue(d.next_due_date),
+                          d.fixed_start_time,
+                          endClock(d.fixed_start_time, d.estimated_minutes),
+                        )}
+                      </p>
+                    ) : null}
+
+                    <div className="mb-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
+                      <label className="block">
+                        <span className="mb-1 block text-[12px] font-medium text-ink-muted">Date</span>
+                        <input
+                          type="date"
+                          value={dateInputValue(d.next_due_date)}
+                          onChange={(e) => {
+                            const value = e.target.value;
+                            patch(d._key, {
+                              next_due_date: value ? `${value}T12:00:00.000Z` : null,
+                              flexibility: value ? "Fixed" : d.flexibility,
+                            });
+                          }}
+                          className="min-h-11 w-full rounded-[10px] border border-border bg-surface-raised px-3 py-2 text-[15px] text-ink"
+                        />
+                      </label>
+                      <label className="block">
+                        <span className="mb-1 block text-[12px] font-medium text-ink-muted">
+                          Time
+                          {d.fixed_start_time
+                            ? ` · ${formatClockRange(d.fixed_start_time, endClock(d.fixed_start_time, d.estimated_minutes))}`
+                            : ""}
+                        </span>
+                        <input
+                          type="time"
+                          value={d.fixed_start_time ?? ""}
+                          onChange={(e) => {
+                            const value = e.target.value;
+                            patch(d._key, {
+                              fixed_start_time: value || null,
+                              flexibility: value ? "Fixed" : d.flexibility,
+                            });
+                          }}
+                          className="min-h-11 w-full rounded-[10px] border border-border bg-surface-raised px-3 py-2 text-[15px] text-ink"
+                        />
+                      </label>
                     </div>
 
                     <label className="mb-3 block">

@@ -3,6 +3,7 @@ import type { NewPlannedTaskInput, PlannedTask } from "@/lib/db/map-rows";
 import type { RefineChange } from "@/lib/api/refine-types";
 import { formatDayAndRange } from "@/lib/planner/clock-label";
 import { DEFAULT_DAY_START_MIN, suggestSlot, type DeferredPlanNotice } from "@/lib/planner/plan-my-week";
+import type { ProtectedWindow } from "@/lib/planner/protected-time";
 
 export type SchedulePreviewRow = {
   key: string;
@@ -57,6 +58,9 @@ export function proposalsFromRefine(
   todayISO: string,
   now: Date,
   dayStartMin: number = DEFAULT_DAY_START_MIN,
+  wakeMin?: number,
+  windDownMin?: number,
+  protectedWindows: ProtectedWindow[] = [],
 ): SchedulePreviewRow[] {
   const itemById = new Map(items.map((item) => [item.id, item]));
   let open = tasks.filter((task) => task.status !== "done" && task.status !== "skipped");
@@ -90,6 +94,9 @@ export function proposalsFromRefine(
         todayISO,
         now,
         dayStartMin,
+        wakeMin,
+        windDownMin,
+        protectedWindows,
       );
       if (!slot) {
         rows.push({
@@ -137,6 +144,9 @@ export function proposalsFromRefine(
       todayISO,
       now,
       dayStartMin,
+      wakeMin,
+      windDownMin,
+      protectedWindows,
     );
     if (!slot) {
       rows.push({

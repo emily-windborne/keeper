@@ -12,6 +12,7 @@ import { PlannerMonthView } from "@/components/planner/PlannerMonthView";
 import { PlannerTaskList } from "@/components/planner/PlannerTaskList";
 import { PlannerWeekTimelineView } from "@/components/planner/PlannerWeekTimelineView";
 import { startOfMonth, toISODate } from "@/components/planner/planner-view-utils";
+import { DEFAULT_WAKE_MIN, DEFAULT_WIND_MIN } from "@/lib/planner/life-dump";
 import { buildPlanMyWeekInputs } from "@/lib/planner/plan-my-week";
 import {
   itemToInsertRow,
@@ -41,6 +42,8 @@ import { applyPlanMyWeek } from "@/lib/planner/apply-plan-my-week";
 import { DEFAULT_DAY_START_MIN } from "@/lib/planner/plan-my-week";
 import { describeScheduleConflict, saveNextRepeats } from "@/lib/planner/next-repeat";
 import { loadUserSettings } from "@/lib/settings/user-settings";
+import type { ProtectedWindow } from "@/lib/planner/protected-time";
+import { loadProtectedTimes } from "@/lib/settings/protected-times";
 import { patchesForFutureTasks, syncFutureTasks } from "@/lib/inventory/future-tasks";
 
 const PlannerTaskEditSheetLazy = dynamic(
@@ -133,7 +136,10 @@ export function PlannerScreen() {
   const [plannedTasks, setPlannedTasks] = useState<PlannedTask[]>([]);
   const [loading, setLoading] = useState(true);
   const [dayStartMin, setDayStartMin] = useState(DEFAULT_DAY_START_MIN);
+  const [wakeMin, setWakeMin] = useState(DEFAULT_WAKE_MIN);
+  const [windMin, setWindMin] = useState(DEFAULT_WIND_MIN);
   const [autoScheduleNext, setAutoScheduleNext] = useState(true);
+  const [protectedWindows, setProtectedWindows] = useState<ProtectedWindow[]>([]);
 
   const itemById = useMemo(() => {
     const map = new Map<string, Item>();
@@ -167,10 +173,16 @@ export function PlannerScreen() {
         if (tasksRes.error) {
           setToast({ id: createId(), message: tasksRes.error.message });
         }
-        const settings = await loadUserSettings(supabase);
+        const [settings, windows] = await Promise.all([
+          loadUserSettings(supabase),
+          loadProtectedTimes(supabase),
+        ]);
         if (cancelled) return;
         setDayStartMin(settings.dayStartMinutes);
+        setWakeMin(settings.wakeMinutes);
+        setWindMin(settings.windDownMinutes);
         setAutoScheduleNext(settings.autoScheduleNext);
+        setProtectedWindows(windows);
         if (settings.autoScheduleNext && !itemsRes.error && !tasksRes.error) {
           const filled = await saveNextRepeats(
             supabase,
@@ -179,6 +191,11 @@ export function PlannerScreen() {
             todayISO,
             new Date(),
             settings.dayStartMinutes,
+            {
+              wakeMin: settings.wakeMinutes,
+              windDownMin: settings.windDownMinutes,
+              protectedWindows: windows,
+            },
           );
           if (cancelled) return;
           if (filled.error) {
@@ -420,6 +437,9 @@ export function PlannerScreen() {
         todayISO,
         clock.at,
         dayStartMin,
+        wakeMin,
+        windMin,
+        protectedWindows,
       );
       if (rows.length === 0) {
         setToast({ id: createId(), message: data.note });
@@ -446,11 +466,18 @@ export function PlannerScreen() {
     }
 
     setBrainDumpParsing(true);
+    const clock = clockContext();
     try {
       const res = await fetch("/api/inventory/parse-brain-dump", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ text }),
+        body: JSON.stringify({
+          text,
+          now: { date: clock.date, time: clock.time, time_zone: clock.time_zone },
+          wake_minutes: wakeMin,
+          wind_down_minutes: windMin,
+          protected_windows: protectedWindows,
+        }),
       });
       const data = (await res.json()) as { items?: BrainDumpItemDraft[]; error?: string };
       if (!res.ok) {
@@ -522,7 +549,11 @@ export function PlannerScreen() {
     const weekISOs = weekDays.map((d) => toISODate(d));
     const existingInWeek = plannedTasks.filter((t) => weekISOs.includes(t.scheduled_date));
     const { inputs, deferred } = buildPlanMyWeekInputs(items, existingInWeek, weekISOs, todayISO, {
+      now: new Date(),
       dayStartMin,
+      wakeMin,
+      windDownMin: windMin,
+      protectedWindows,
     });
 
     if (inputs.length === 0 && deferred.length === 0) {
@@ -865,6 +896,7 @@ export function PlannerScreen() {
         todayISO,
         new Date(),
         dayStartMin,
+        { wakeMin, windDownMin: windMin, protectedWindows },
       );
       if (filled.error) {
         setToast({ id: createId(), message: filled.error });
@@ -1340,6 +1372,7 @@ export function PlannerScreen() {
                   tasks={selectedDayTasks}
                   itemById={itemById}
                   dateISO={selectedDateISO}
+                  protectedWindows={protectedWindows}
                   onOpenTask={openTaskActions}
                   onCommitSchedule={(taskId, patch) => {
                     const task = plannedTasks.find((row) => row.id === taskId);
@@ -1363,6 +1396,7 @@ export function PlannerScreen() {
                     itemById={itemById}
                     selectedDateISO={selectedDateISO}
                     todayISO={todayISO}
+                    protectedWindows={protectedWindows}
                     onSelectDate={jumpPlannerToDate}
                     onOpenTask={openTaskActions}
                     onCommitSchedule={(taskId, patch) => {

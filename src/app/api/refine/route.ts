@@ -8,10 +8,11 @@ import type {
   RefineResponseBody,
 } from "@/lib/api/refine-types";
 import { REFINE_OUTPUT_SCHEMA } from "@/lib/api/refine-types";
+import { REASONING_MODEL } from "@/lib/api/models";
 
 export const runtime = "nodejs";
 
-const MODEL = "claude-sonnet-5-5";
+const MODEL = REASONING_MODEL;
 
 const SYSTEM_PROMPT = `You are Keeper's planning assistant. You decide what should be added, moved, or removed. You do not choose clock times. The app finds an open time after you answer.
 
@@ -24,7 +25,9 @@ Rules:
 - Do not put a time of day in any field.
 - If no changes are needed, return an empty changes array with a short note.
 - The note is one calm, practical sentence. No cheerleading, no exclamation marks, no em dashes.
-- Use the current date, time, and time zone in the request. Do not suggest a day that is already past.`;
+- context.now is the user's actual current date, local time, and time zone. Resolve tomorrow and weekday phrases from that date. Do not invent a different today.
+- Do not move or remove an item whose flexibility is Fixed. It already has a clock time.
+- Do not suggest a day that is already past.`;
 
 function isRefineAction(x: unknown): x is RefineApiAction {
   return (
@@ -153,6 +156,7 @@ export async function POST(request: Request) {
     user: buildUserPrompt(reqBody),
     schema: REFINE_OUTPUT_SCHEMA as unknown as Record<string, unknown>,
     maxTokens: 8000,
+    effort: "high",
   });
 
   if ("error" in completed) {
