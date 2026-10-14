@@ -4,7 +4,7 @@ import { createClient } from "@lib/supabase";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import dynamic from "next/dynamic";
 import { useRouter, useSearchParams } from "next/navigation";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
 import type { Item } from "@/data/inventory-mock";
 import { PlannerCalendarPopover } from "@/components/planner/PlannerCalendarPopover";
 import { PlannerDayView } from "@/components/planner/PlannerDayView";
@@ -43,6 +43,8 @@ import { applyPlanMyWeek } from "@/lib/planner/apply-plan-my-week";
 import { DEFAULT_DAY_START_MIN } from "@/lib/planner/plan-my-week";
 import { describeScheduleConflict, saveNextRepeats } from "@/lib/planner/next-repeat";
 import { loadUserSettings } from "@/lib/settings/user-settings";
+import type { ProtectedWindow } from "@/lib/planner/protected-time";
+import { loadProtectedTimes } from "@/lib/settings/protected-times";
 import { patchesForFutureTasks, syncFutureTasks } from "@/lib/inventory/future-tasks";
 
 const PlannerTaskEditSheetLazy = dynamic(
@@ -138,6 +140,7 @@ export function PlannerScreen() {
   const [wakeMin, setWakeMin] = useState(DEFAULT_WAKE_MIN);
   const [windMin, setWindMin] = useState(DEFAULT_WIND_MIN);
   const [autoScheduleNext, setAutoScheduleNext] = useState(true);
+  const [protectedWindows, setProtectedWindows] = useState<ProtectedWindow[]>([]);
 
   const itemById = useMemo(() => {
     const map = new Map<string, Item>();
@@ -171,12 +174,16 @@ export function PlannerScreen() {
         if (tasksRes.error) {
           setToast({ id: createId(), message: tasksRes.error.message });
         }
-        const settings = await loadUserSettings(supabase);
+        const [settings, windows] = await Promise.all([
+          loadUserSettings(supabase),
+          loadProtectedTimes(supabase),
+        ]);
         if (cancelled) return;
         setDayStartMin(settings.dayStartMinutes);
         setWakeMin(settings.wakeMinutes);
         setWindMin(settings.windDownMinutes);
         setAutoScheduleNext(settings.autoScheduleNext);
+        setProtectedWindows(windows);
         if (settings.autoScheduleNext && !itemsRes.error && !tasksRes.error) {
           const filled = await saveNextRepeats(
             supabase,
@@ -185,6 +192,11 @@ export function PlannerScreen() {
             todayISO,
             new Date(),
             settings.dayStartMinutes,
+            {
+              wakeMin: settings.wakeMinutes,
+              windDownMin: settings.windDownMinutes,
+              protectedWindows: windows,
+            },
           );
           if (cancelled) return;
           if (filled.error) {
@@ -446,6 +458,7 @@ export function PlannerScreen() {
         dayStartMin,
         wakeMin,
         windMin,
+        protectedWindows,
       );
       if (rows.length === 0) {
         setToast({ id: createId(), message: data.note });
@@ -482,6 +495,7 @@ export function PlannerScreen() {
           now: { date: clock.date, time: clock.time, time_zone: clock.time_zone },
           wake_minutes: wakeMin,
           wind_down_minutes: windMin,
+          protected_windows: protectedWindows,
         }),
       });
       const data = (await res.json()) as { items?: BrainDumpItemDraft[]; error?: string };
@@ -558,6 +572,7 @@ export function PlannerScreen() {
       dayStartMin,
       wakeMin,
       windDownMin: windMin,
+      protectedWindows,
     });
 
     if (inputs.length === 0 && deferred.length === 0) {
@@ -809,6 +824,24 @@ export function PlannerScreen() {
     jumpPlannerToDate(toISODate(d));
   }
 
+  const daySwipe = useRef<{ x: number; y: number; pointerId: number } | null>(null);
+
+  function onDayPointerDown(event: ReactPointerEvent<HTMLDivElement>) {
+    const target = event.target as HTMLElement;
+    if (target.closest("[data-task], button, a, input, textarea, select, label")) return;
+    daySwipe.current = { x: event.clientX, y: event.clientY, pointerId: event.pointerId };
+  }
+
+  function onDayPointerUp(event: ReactPointerEvent<HTMLDivElement>) {
+    const start = daySwipe.current;
+    daySwipe.current = null;
+    if (!start || start.pointerId !== event.pointerId) return;
+    const dx = event.clientX - start.x;
+    const dy = event.clientY - start.y;
+    if (Math.abs(dx) < 48 || Math.abs(dx) < Math.abs(dy) * 1.25) return;
+    shiftDay(dx < 0 ? 1 : -1);
+  }
+
   function shiftMonth(delta: -1 | 1) {
     setMonthCursor((prev) => {
       const n = new Date(prev);
@@ -889,6 +922,7 @@ export function PlannerScreen() {
         todayISO,
         new Date(),
         dayStartMin,
+        { wakeMin, windDownMin: windMin, protectedWindows },
       );
       if (filled.error) {
         setToast({ id: createId(), message: filled.error });
@@ -1353,12 +1387,18 @@ export function PlannerScreen() {
               {sectionTitle}
             </h2>
 
-            <div className="mt-4 flex-1 overflow-y-auto pr-1 pb-44">
+            <div
+              className="mt-4 flex-1 overflow-y-auto pr-1 pb-44"
+              onPointerDown={plannerView === "day" ? onDayPointerDown : undefined}
+              onPointerUp={plannerView === "day" ? onDayPointerUp : undefined}
+              onPointerCancel={plannerView === "day" ? () => { daySwipe.current = null; } : undefined}
+            >
               {plannerView === "day" ? (
                 <PlannerDayView
                   tasks={selectedDayTasks}
                   itemById={itemById}
                   dateISO={selectedDateISO}
+                  protectedWindows={protectedWindows}
                   onOpenTask={openTaskActions}
                   onCommitSchedule={(taskId, patch) => {
                     const task = plannedTasks.find((row) => row.id === taskId);
@@ -1382,6 +1422,7 @@ export function PlannerScreen() {
                     itemById={itemById}
                     selectedDateISO={selectedDateISO}
                     todayISO={todayISO}
+                    protectedWindows={protectedWindows}
                     onSelectDate={jumpPlannerToDate}
                     onOpenTask={openTaskActions}
                     onCommitSchedule={(taskId, patch) => {

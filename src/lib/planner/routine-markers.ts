@@ -16,10 +16,18 @@ function weekdayName(dateISO: string): string {
   return WEEKDAYS[new Date(Date.UTC(year, month - 1, day)).getUTCDay()] ?? "";
 }
 
+/** The length the person set. A routine never grows into a default hour. */
+export function routineMinutes(item: { type: string; estimated_minutes: number }): number | null {
+  if (item.type !== "anchor") return null;
+  const minutes = item.estimated_minutes;
+  if (!Number.isFinite(minutes) || minutes <= 0) return 15;
+  return Math.round(minutes);
+}
+
 function endClock(start: string, minutes: number): string {
   const match = start.match(/^(\d{1,2}):(\d{2})$/);
   if (!match) return start;
-  const total = Number(match[1]) * 60 + Number(match[2]) + Math.max(15, minutes);
+  const total = Number(match[1]) * 60 + Number(match[2]) + Math.max(5, Math.round(minutes));
   const hour = Math.floor(total / 60) % 24;
   const minute = total % 60;
   return `${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}`;
@@ -46,7 +54,7 @@ export function routineMarkers(items: Item[], dateISOs: string[], existing: Plan
         title_snapshot: item.title,
         scheduled_date: dateISO,
         scheduled_time_start: start,
-        scheduled_time_end: start ? endClock(start, item.estimated_minutes) : null,
+        scheduled_time_end: start ? endClock(start, routineMinutes(item) ?? item.estimated_minutes) : null,
         status: "planned",
         priority_override: null,
         notes: null,

@@ -12,6 +12,8 @@ import {
   scheduleLifeDump,
   type LifeClock,
 } from "@/lib/planner/life-dump";
+import { protectedWindowsFromUnknown } from "@/lib/planner/protected-time";
+import { loadProtectedTimes } from "@/lib/settings/protected-times";
 
 export const runtime = "nodejs";
 
@@ -114,6 +116,7 @@ Rules:
 - flexibility: "Fixed" when the person names a date and a clock time, or a start and end such as 2 to 5 PM. Set fixed_start_time to 24-hour HH:MM and next_due_date to YYYY-MM-DD. The duration is the difference, so 2 to 5 PM is 180 minutes starting at 14:00. Leave both strings empty when there is no stated day or time.
 - Errands at a business (UPS, a store, auto parts, a shop, a pickup) stay between 9:00 AM and 5:00 PM unless the person names another time. Respect "before 5 PM" and "after" ordering.
 - Do not schedule ordinary tasks before wake time or after wind-down. A stated fixed time may sit outside that window.
+- Do not schedule ordinary tasks inside protected time. A clock time the person names may sit inside it.
 - Meetings and calls the person already has are fixed events and count as busy.
 - Write notes in 12-hour time, such as 5:20 PM, never 17:20.
 - Split distinct responsibilities into separate items.
@@ -150,6 +153,10 @@ export async function POST(request: Request) {
   }
 
   const clock = readClock(body);
+  const savedWindows = await loadProtectedTimes(supabase);
+  clock.protectedWindows = savedWindows.length > 0 ? savedWindows : protectedWindowsFromUnknown(
+    (body as { protected_windows?: unknown }).protected_windows,
+  );
   const placed = scheduleLifeDump(text, clock);
   const known = draftsFromPlaced(placed);
   const leftover = leftoverLifeDump(text, clock);

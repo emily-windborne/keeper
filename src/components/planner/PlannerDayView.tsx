@@ -4,9 +4,11 @@ import type { Item } from "@/data/inventory-mock";
 import type { PlannedTask } from "@/lib/db/map-rows";
 import { CategoryIcon } from "@/components/CategoryIcon";
 import { consumeBackgroundClick, DragBlock } from "@/components/planner/DragBlock";
+import { ProtectedBands } from "@/components/planner/ProtectedBands";
+import type { ProtectedWindow } from "@/lib/planner/protected-time";
 import { timeStartToHour, parseTimeToMinutesSinceMidnight } from "@/components/planner/planner-view-utils";
 import { formatClock, formatClockRange } from "@/lib/planner/clock-label";
-import { isRoutineMarkerId } from "@/lib/planner/routine-markers";
+import { isRoutineMarkerId, routineMinutes } from "@/lib/planner/routine-markers";
 import { minutesFromPointerY, minutesToHHMM, TIMELINE_END_MIN, TIMELINE_START_MIN } from "@/lib/planner/time-snap";
 
 const DAY_START_HOUR = 6;
@@ -65,6 +67,7 @@ export function PlannerDayView({
   tasks,
   itemById,
   dateISO,
+  protectedWindows = [],
   onOpenTask,
   onCommitSchedule,
   onCreateAt,
@@ -72,6 +75,7 @@ export function PlannerDayView({
   tasks: PlannedTask[];
   itemById: Map<string, Item>;
   dateISO: string;
+  protectedWindows?: ProtectedWindow[];
   onOpenTask: (taskId: string) => void;
   onCommitSchedule: (
     taskId: string,
@@ -161,7 +165,13 @@ export function PlannerDayView({
     const endRaw = task.scheduled_time_end
       ? parseTimeToMinutesSinceMidnight(task.scheduled_time_end)
       : null;
-    const end = endRaw != null && endRaw > start ? endRaw : start + Math.max(15, item.estimated_minutes);
+    const setRoutine = routineMinutes(item);
+    const end =
+      setRoutine != null
+        ? start + setRoutine
+        : endRaw != null && endRaw > start
+          ? endRaw
+          : start + Math.max(15, item.estimated_minutes || 15);
     return [{ task, item, startMin: start, endMin: Math.min(TIMELINE_END_MIN, end) }];
   });
 
@@ -233,6 +243,13 @@ export function PlannerDayView({
               style={{ top: i * HOUR_PX }}
             />
           ))}
+          <ProtectedBands
+            windows={protectedWindows}
+            dateISO={dateISO}
+            timelineStartMin={TIMELINE_START_MIN}
+            timelineEndMin={TIMELINE_END_MIN}
+            hourPx={HOUR_PX}
+          />
           {layoutDayBlocks(timedBlocks).map(({ task, item, startMin, endMin, lane, laneCount, heightPx, top }) => {
             const routine = item.type === "anchor";
             const editable = task.status !== "done" && task.status !== "skipped" && !isRoutineMarkerId(task.id);

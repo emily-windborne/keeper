@@ -2,6 +2,7 @@ import type { Item } from "@/data/inventory-mock";
 import { intervalOf, repeatsEveryDay } from "@/lib/inventory/frequency";
 import type { NewPlannedTaskInput, PlannedTask } from "@/lib/db/map-rows";
 import { BUSINESS_END_MIN, BUSINESS_START_MIN, isBusinessErrand } from "@/lib/planner/life-dump";
+import { windowsOnDate, type ProtectedWindow } from "@/lib/planner/protected-time";
 
 /** Priority sort: lower = schedule first (more urgent). */
 const PRIORITY_ORDER: Record<Item["priority"], number> = {
@@ -202,6 +203,7 @@ function findEarliestSlot(
   dur: number,
   minStart: number,
   maxEnd: number,
+  gap = MIN_GAP_MINUTES,
 ): number | null {
   const latestStart = maxEnd - dur;
   if (minStart > latestStart) return null;
@@ -209,10 +211,10 @@ function findEarliestSlot(
   let candidate = minStart;
   for (const iv of sorted) {
     if (candidate > latestStart) return null;
-    if (candidate + dur <= iv.start - MIN_GAP_MINUTES) {
+    if (candidate + dur <= iv.start - gap) {
       return candidate;
     }
-    candidate = Math.max(iv.end + MIN_GAP_MINUTES, minStart);
+    candidate = Math.max(iv.end + gap, minStart);
   }
   if (candidate <= latestStart) return candidate;
   return null;
@@ -230,7 +232,7 @@ function intervalFromPlannedTask(
   const start = parseHHMM(t.scheduled_time_start);
   if (start == null) return null;
   const parsedEnd = parseHHMM(t.scheduled_time_end);
-  const est = Math.max(1, itemById.get(t.item_id)?.estimated_minutes ?? 60);
+  const est = Math.max(1, itemById.get(t.item_id)?.estimated_minutes ?? 30);
   const end = parsedEnd ?? start + est;
   return { start, end: Math.max(end, start + 1) };
 }
@@ -240,7 +242,7 @@ function estimatedMinutesForPlannedTask(t: PlannedTask, itemById: Map<string, It
   const s = parseHHMM(t.scheduled_time_start);
   const e = parseHHMM(t.scheduled_time_end);
   if (s != null && e != null) return Math.max(1, e - s);
-  return Math.max(1, itemById.get(t.item_id)?.estimated_minutes ?? 60);
+  return Math.max(1, itemById.get(t.item_id)?.estimated_minutes ?? 30);
 }
 
 /**
@@ -409,6 +411,7 @@ function tryPlaceOnDays(
   outputs: NewPlannedTaskInput[],
   wakeMin?: number,
   windDownMin?: number,
+  protectedWindows: ProtectedWindow[] = [],
 ): string | null {
   if (item.flexibility === "Fixed" && item.fixed_start_time) {
     return tryPlaceFixed(
@@ -434,14 +437,21 @@ function tryPlaceOnDays(
     if (!bounds) continue;
 
     const quiet = item.type === "anchor";
-    const ivs = quiet ? [] : (dayIntervals.get(dateISO) ?? []);
-    const startMin = findEarliestSlot(ivs, dur, bounds.minStart, bounds.maxEnd);
+    const occupied = quiet ? [] : (dayIntervals.get(dateISO) ?? []);
+    const blocked = [
+      ...occupied.map((iv) => ({ start: iv.start - MIN_GAP_MINUTES, end: iv.end + MIN_GAP_MINUTES })),
+      ...windowsOnDate(protectedWindows, dateISO).map((window) => ({
+        start: window.startMin,
+        end: window.endMin,
+      })),
+    ];
+    const startMin = findEarliestSlot(blocked, dur, bounds.minStart, bounds.maxEnd, 0);
     if (startMin == null) continue;
 
     const endMin = startMin + dur;
     if (!quiet) {
-      ivs.push({ start: startMin, end: endMin });
-      dayIntervals.set(dateISO, sortIntervals(ivs));
+      occupied.push({ start: startMin, end: endMin });
+      dayIntervals.set(dateISO, sortIntervals(occupied));
       loads[dayIdx] = (loads[dayIdx] ?? 0) + dur;
     }
     outputs.push({
@@ -473,6 +483,8 @@ export type PlanScheduleOptions = {
   wakeMin?: number;
   /** Ordinary tasks finish by this. Fixed events can run later. */
   windDownMin?: number;
+  /** Flexible tasks stay out of these. A named fixed clock time may sit inside. */
+  protectedWindows?: ProtectedWindow[];
 };
 
 function resolveSchedule(input?: Date | PlanScheduleOptions): {
@@ -480,9 +492,10 @@ function resolveSchedule(input?: Date | PlanScheduleOptions): {
   dayStartMin: number;
   wakeMin?: number;
   windDownMin?: number;
+  protectedWindows: ProtectedWindow[];
 } {
   if (input instanceof Date || input == null) {
-    return { now: input ?? new Date(), dayStartMin: DEFAULT_DAY_START_MIN };
+    return { now: input ?? new Date(), dayStartMin: DEFAULT_DAY_START_MIN, protectedWindows: [] };
   }
   const dayStart = input.dayStartMin;
   const wake = input.wakeMin;
@@ -495,6 +508,7 @@ function resolveSchedule(input?: Date | PlanScheduleOptions): {
         : DEFAULT_DAY_START_MIN,
     wakeMin: typeof wake === "number" && wake >= 0 && wake < 24 * 60 ? wake : undefined,
     windDownMin: typeof wind === "number" && wind > 0 && wind <= 24 * 60 ? wind : undefined,
+    protectedWindows: input.protectedWindows ?? [],
   };
 }
 
@@ -505,7 +519,7 @@ export function buildPlanMyWeekInputs(
   todayISO: string,
   nowOrOptions: Date | PlanScheduleOptions = new Date(),
 ): PlanMyWeekResult {
-  const { now, dayStartMin, wakeMin, windDownMin } = resolveSchedule(nowOrOptions);
+  const { now, dayStartMin, wakeMin, windDownMin, protectedWindows } = resolveSchedule(nowOrOptions);
   const empty: PlanMyWeekResult = { inputs: [], deferred: [] };
   if (weekDayISOs.length === 0) return empty;
 
@@ -655,6 +669,7 @@ export function buildPlanMyWeekInputs(
             outputs,
             wakeMin,
             windDownMin,
+            protectedWindows,
           );
           if (!placedIso) break;
           countOnDay.set(`${item.id}|${placedIso}`, (countOnDay.get(`${item.id}|${placedIso}`) ?? 0) + 1);
@@ -683,6 +698,7 @@ export function buildPlanMyWeekInputs(
         outputs,
         wakeMin,
         windDownMin,
+        protectedWindows,
       );
       if (
         !placedIso &&
@@ -706,6 +722,7 @@ export function buildPlanMyWeekInputs(
           outputs,
           wakeMin,
           windDownMin,
+          protectedWindows,
         );
       }
       if (!placedIso) break;
@@ -742,6 +759,7 @@ export function suggestSlot(
   dayStartMin: number = DEFAULT_DAY_START_MIN,
   wakeMin?: number,
   windDownMin?: number,
+  protectedWindows: ProtectedWindow[] = [],
 ): { scheduled_date: string; scheduled_time_start: string; scheduled_time_end: string } | null {
   const days = candidateDayISOs.filter((iso) => iso >= todayISO);
   if (days.length === 0) return null;
@@ -770,6 +788,7 @@ export function suggestSlot(
     outputs,
     wakeMin,
     windDownMin,
+    protectedWindows,
   );
   const first = outputs[0];
   if (!placed || !first?.scheduled_time_start || !first.scheduled_time_end) return null;

@@ -7,6 +7,7 @@ import { mapItemRow, mapPlannedTaskRow, type PlannedTask } from "@/lib/db/map-ro
 import { formatClock } from "@/lib/planner/clock-label";
 import { markPlannedTaskDone } from "@/lib/planner/mark-task-done";
 import { saveNextRepeats } from "@/lib/planner/next-repeat";
+import { loadProtectedTimes } from "@/lib/settings/protected-times";
 import { loadUserSettings } from "@/lib/settings/user-settings";
 import type { Item } from "@/data/inventory-mock";
 
@@ -352,6 +353,7 @@ export function CheckInScreen() {
           } else if (itemsRes.error) {
             scheduleError = itemsRes.error.message;
           } else {
+            const windows = await loadProtectedTimes(supabase);
             const filled = await saveNextRepeats(
               supabase,
               (itemsRes.data ?? []).map((row) => mapItemRow(row as Parameters<typeof mapItemRow>[0])),
@@ -361,6 +363,11 @@ export function CheckInScreen() {
               todayISO,
               new Date(),
               settings.dayStartMinutes,
+              {
+                wakeMin: settings.wakeMinutes,
+                windDownMin: settings.windDownMinutes,
+                protectedWindows: windows,
+              },
             );
             scheduleError = filled.error;
           }

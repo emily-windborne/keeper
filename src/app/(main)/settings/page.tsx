@@ -3,6 +3,9 @@
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@lib/supabase";
+import { ProtectedTimeFields } from "@/components/settings/ProtectedTimeFields";
+import type { ProtectedWindow } from "@/lib/planner/protected-time";
+import { loadProtectedTimes } from "@/lib/settings/protected-times";
 import { clockToMinutes, minutesToClock } from "@/lib/notifications/digest";
 import { DEFAULT_WAKE_MIN, DEFAULT_WIND_MIN } from "@/lib/planner/life-dump";
 import { formatClock } from "@/lib/planner/clock-label";
@@ -35,13 +38,21 @@ export default function SettingsPage() {
   const [saving, setSaving] = useState(false);
   const [turningOn, setTurningOn] = useState(false);
   const [needsHomeScreen, setNeedsHomeScreen] = useState(false);
+  const [userId, setUserId] = useState<string | null>(null);
+  const [protectedWindows, setProtectedWindows] = useState<ProtectedWindow[]>([]);
 
   useEffect(() => {
     setNeedsHomeScreen(isIphoneWithoutHomeScreen());
     let cancelled = false;
     void (async () => {
-      const settings = await loadUserSettings(supabase);
+      const [settings, windows, userRes] = await Promise.all([
+        loadUserSettings(supabase),
+        loadProtectedTimes(supabase),
+        supabase.auth.getUser(),
+      ]);
       if (cancelled) return;
+      setProtectedWindows(windows);
+      setUserId(userRes.data.user?.id ?? null);
       setDayStart(minutesToHHMM(settings.dayStartMinutes));
       setAutoNext(settings.autoScheduleNext);
       setMorningOn(settings.morningDigestEnabled);
@@ -224,6 +235,13 @@ export default function SettingsPage() {
             className="min-h-11 w-full rounded-[10px] border border-border bg-surface-raised px-4 py-3 text-base text-ink shadow-sm outline-none focus:border-accent/40 focus:ring-2 focus:ring-accent/15"
           />
         </label>
+        <ProtectedTimeFields
+          supabase={supabase}
+          userId={userId}
+          windows={protectedWindows}
+          onChange={setProtectedWindows}
+          onMessage={setMessage}
+        />
       </section>
 
       <section className="mb-8 max-w-sm" aria-labelledby="notifications-heading">

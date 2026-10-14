@@ -1,6 +1,12 @@
 import type { ItemCategory } from "@/data/inventory-mock";
 import type { BrainDumpItemDraft } from "@/lib/api/brain-dump-types";
 import { formatClock, formatClockRange, formatClocksInText } from "@/lib/planner/clock-label";
+import {
+  startOutsideProtected,
+  windowsOnDate,
+  windowOverlapping,
+  type ProtectedWindow,
+} from "@/lib/planner/protected-time";
 
 export const BUSINESS_START_MIN = 9 * 60;
 export const BUSINESS_END_MIN = 17 * 60;
@@ -22,6 +28,8 @@ export type LifeClock = {
   timeZone?: string;
   wakeMin?: number;
   windMin?: number;
+  /** Recurring blocks that stay empty unless the person names that clock time. */
+  protectedWindows?: ProtectedWindow[];
 };
 
 export type LifeIntent = {
@@ -476,8 +484,26 @@ function placeChain(
   return null;
 }
 
+function seedProtected(busy: Busy[], clock: LifeClock) {
+  const windows = clock.protectedWindows ?? [];
+  if (windows.length === 0) return;
+  for (let day = 0; day < HORIZON_DAYS; day += 1) {
+    const dateISO = addDaysISO(clock.todayISO, day);
+    for (const window of windowsOnDate(windows, dateISO)) {
+      busy.push({
+        dateISO,
+        start: window.startMin,
+        end: window.endMin,
+        padBefore: 0,
+        padAfter: 0,
+      });
+    }
+  }
+}
+
 export function placeLifeDump(intents: LifeIntent[], clock: LifeClock): PlacedLife[] {
   const busy: Busy[] = [];
+  seedProtected(busy, clock);
   const placed: PlacedLife[] = [];
   for (const intent of intents) {
     const fixed = placeFixed(intent, busy);
@@ -525,6 +551,8 @@ export function validatePlacements(
         (event) => event.dateISO === row.dateISO && row.startMin < event.endMin && row.endMin > event.startMin,
       );
       if (hit) problems.push({ title: row.title, reason: `on top of ${hit.title}` });
+      const blocked = windowOverlapping(clock.protectedWindows ?? [], row.dateISO, row.startMin, row.endMin);
+      if (blocked) problems.push({ title: row.title, reason: `during ${blocked.name}` });
     }
     for (const priorTitle of row.afterTitles) {
       const prior = placed.find((item) => item.title === priorTitle);
@@ -586,7 +614,16 @@ export function draftsFromPlaced(rows: PlacedLife[]): BrainDumpItemDraft[] {
 export function clockPrompt(clock: LifeClock): string {
   const time = formatClock(minutesToHHMM(clock.nowMinutes));
   const zone = clock.timeZone ?? "the time zone saved on the account";
-  return `The user's current date is ${clock.todayISO}. The local time is ${time}. The time zone is ${zone}. Resolve words like tomorrow and this coming Sunday from that date only.`;
+  const blocks = (clock.protectedWindows ?? [])
+    .map(
+      (window) =>
+        `${window.name} (${window.days.join(", ")} ${formatClock(minutesToHHMM(window.startMin))}–${formatClock(minutesToHHMM(window.endMin))})`,
+    )
+    .join("; ");
+  const protectedLine = blocks
+    ? ` Protected time must stay empty unless the person names that exact clock time: ${blocks}.`
+    : "";
+  return `The user's current date is ${clock.todayISO}. The local time is ${time}. The time zone is ${zone}. Resolve words like tomorrow and this coming Sunday from that date only.${protectedLine}`;
 }
 
 function parseHHMM(value: string | null | undefined): number | null {
@@ -610,11 +647,29 @@ export function repairModelDrafts(drafts: BrainDumpItemDraft[], clock: LifeClock
     const business = isBusinessErrand(draft);
     const outsideBusiness = business && (start < BUSINESS_START_MIN || end > BUSINESS_END_MIN);
     const outsideDay = !business && draft.flexibility !== "Fixed" && (start < wake || end > wind);
-    if (!outsideBusiness && !outsideDay) return draft;
+    const explicit = draft.flexibility === "Fixed";
+    const dateISO =
+      typeof draft.next_due_date === "string" && /^\d{4}-\d{2}-\d{2}/.test(draft.next_due_date)
+        ? draft.next_due_date.slice(0, 10)
+        : null;
+    const blocked =
+      !explicit &&
+      windowOverlapping(clock.protectedWindows ?? [], dateISO, start, end) != null;
+    if (!outsideBusiness && !outsideDay && !blocked) return draft;
     const earliest = business ? BUSINESS_START_MIN : wake;
     const latest = business ? BUSINESS_END_MIN : wind;
     const duration = Math.max(15, Math.min(draft.estimated_minutes, latest - earliest));
-    const snapped = Math.min(Math.max(start, earliest), latest - duration);
+    let snapped = Math.min(Math.max(start, earliest), latest - duration);
+    if (!explicit) {
+      snapped = startOutsideProtected(
+        snapped,
+        duration,
+        clock.protectedWindows ?? [],
+        dateISO,
+        earliest,
+        latest,
+      );
+    }
     return {
       ...draft,
       fixed_start_time: minutesToHHMM(snapped),
