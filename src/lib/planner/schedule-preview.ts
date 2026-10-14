@@ -57,6 +57,8 @@ export function proposalsFromRefine(
   todayISO: string,
   now: Date,
   dayStartMin: number = DEFAULT_DAY_START_MIN,
+  wakeMin?: number,
+  windDownMin?: number,
 ): SchedulePreviewRow[] {
   const itemById = new Map(items.map((item) => [item.id, item]));
   let open = tasks.filter((task) => task.status !== "done" && task.status !== "skipped");
@@ -90,6 +92,8 @@ export function proposalsFromRefine(
         todayISO,
         now,
         dayStartMin,
+        wakeMin,
+        windDownMin,
       );
       if (!slot) {
         rows.push({
@@ -137,6 +141,8 @@ export function proposalsFromRefine(
       todayISO,
       now,
       dayStartMin,
+      wakeMin,
+      windDownMin,
     );
     if (!slot) {
       rows.push({

@@ -12,6 +12,7 @@ import { PlannerMonthView } from "@/components/planner/PlannerMonthView";
 import { PlannerTaskList } from "@/components/planner/PlannerTaskList";
 import { PlannerWeekTimelineView } from "@/components/planner/PlannerWeekTimelineView";
 import { startOfMonth, toISODate } from "@/components/planner/planner-view-utils";
+import { DEFAULT_WAKE_MIN, DEFAULT_WIND_MIN } from "@/lib/planner/life-dump";
 import { buildPlanMyWeekInputs } from "@/lib/planner/plan-my-week";
 import {
   itemToInsertRow,
@@ -133,6 +134,8 @@ export function PlannerScreen() {
   const [plannedTasks, setPlannedTasks] = useState<PlannedTask[]>([]);
   const [loading, setLoading] = useState(true);
   const [dayStartMin, setDayStartMin] = useState(DEFAULT_DAY_START_MIN);
+  const [wakeMin, setWakeMin] = useState(DEFAULT_WAKE_MIN);
+  const [windMin, setWindMin] = useState(DEFAULT_WIND_MIN);
   const [autoScheduleNext, setAutoScheduleNext] = useState(true);
 
   const itemById = useMemo(() => {
@@ -170,6 +173,8 @@ export function PlannerScreen() {
         const settings = await loadUserSettings(supabase);
         if (cancelled) return;
         setDayStartMin(settings.dayStartMinutes);
+        setWakeMin(settings.wakeMinutes);
+        setWindMin(settings.windDownMinutes);
         setAutoScheduleNext(settings.autoScheduleNext);
         if (settings.autoScheduleNext && !itemsRes.error && !tasksRes.error) {
           const filled = await saveNextRepeats(
@@ -420,6 +425,8 @@ export function PlannerScreen() {
         todayISO,
         clock.at,
         dayStartMin,
+        wakeMin,
+        windMin,
       );
       if (rows.length === 0) {
         setToast({ id: createId(), message: data.note });
@@ -446,11 +453,17 @@ export function PlannerScreen() {
     }
 
     setBrainDumpParsing(true);
+    const clock = clockContext();
     try {
       const res = await fetch("/api/inventory/parse-brain-dump", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ text }),
+        body: JSON.stringify({
+          text,
+          now: { date: clock.date, time: clock.time, time_zone: clock.time_zone },
+          wake_minutes: wakeMin,
+          wind_down_minutes: windMin,
+        }),
       });
       const data = (await res.json()) as { items?: BrainDumpItemDraft[]; error?: string };
       if (!res.ok) {
@@ -522,7 +535,10 @@ export function PlannerScreen() {
     const weekISOs = weekDays.map((d) => toISODate(d));
     const existingInWeek = plannedTasks.filter((t) => weekISOs.includes(t.scheduled_date));
     const { inputs, deferred } = buildPlanMyWeekInputs(items, existingInWeek, weekISOs, todayISO, {
+      now: new Date(),
       dayStartMin,
+      wakeMin,
+      windDownMin: windMin,
     });
 
     if (inputs.length === 0 && deferred.length === 0) {

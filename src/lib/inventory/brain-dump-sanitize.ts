@@ -54,6 +54,13 @@ function num(v: unknown, fallback: number): number {
   return Math.round(n * 100) / 100;
 }
 
+function dateStamp(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const match = value.trim().match(/^(\d{4}-\d{2}-\d{2})/);
+  if (!match) return null;
+  return `${match[1]}T12:00:00.000Z`;
+}
+
 function str(v: unknown): string | null {
   if (typeof v !== "string") return null;
   const t = v.trim();
@@ -179,6 +186,6 @@ export function sanitizeBrainDumpItem(raw: unknown): BrainDumpItemDraft | null {
     notes,
     is_archived: false,
     last_completed_at: null,
-    next_due_date: null,
+    next_due_date: dateStamp(o.next_due_date),
   };
 }

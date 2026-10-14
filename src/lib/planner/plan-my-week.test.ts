@@ -194,6 +194,71 @@ test("occurrences on the same day do not overlap", () => {
   }
 });
 
+test("a fixed one-off stays on the date she named", () => {
+  const result = buildPlanMyWeekInputs(
+    [
+      item({
+        id: "crafts",
+        title: "Girls crafts",
+        type: "one_off",
+        flexibility: "Fixed",
+        fixed_start_time: "14:00",
+        estimated_minutes: 180,
+        cadence_pressure: "Can slide a little",
+        preferred_days: ["sunday"],
+        next_due_date: "2026-10-18T12:00:00.000Z",
+      }),
+    ],
+    [],
+    WEEK,
+    TODAY,
+    NOW,
+  );
+  assert.equal(result.inputs.length, 1);
+  assert.equal(result.inputs[0]?.scheduled_date, "2026-10-18");
+  assert.equal(result.inputs[0]?.scheduled_time_start, "14:00");
+  assert.equal(result.inputs[0]?.scheduled_time_end, "17:00");
+});
+
+test("an errand stays inside business hours", () => {
+  const result = buildPlanMyWeekInputs(
+    [
+      item({
+        id: "ups",
+        title: "Ship package at UPS",
+        type: "one_off",
+        flexibility: "Flexible anytime",
+        preferred_time_of_day: "evening",
+        estimated_minutes: 30,
+        next_due_date: "2026-10-14T12:00:00.000Z",
+      }),
+    ],
+    [],
+    WEEK,
+    TODAY,
+    NOW,
+  );
+  const task = result.inputs[0];
+  assert.ok(task?.scheduled_time_start);
+  assert.ok(minutes(task.scheduled_time_start!) >= 9 * 60);
+  assert.ok(minutes(task.scheduled_time_end!) <= 17 * 60);
+});
+
+test("ordinary tasks wait until wake time", () => {
+  const early = new Date(2026, 9, 13, 6, 10, 0, 0);
+  const result = buildPlanMyWeekInputs(
+    [item({ id: "walk", title: "Walk", flexibility: "Flexible anytime", estimated_minutes: 30, times_per_period: 1 })],
+    [],
+    WEEK,
+    TODAY,
+    { now: early, dayStartMin: 6 * 60, wakeMin: 8 * 60, windDownMin: 22 * 60 },
+  );
+  const todayTask = result.inputs.find((t) => t.scheduled_date === TODAY);
+  assert.ok(todayTask);
+  assert.ok(minutes(todayTask.scheduled_time_start!) >= 8 * 60);
+  assert.ok(minutes(todayTask.scheduled_time_end!) <= 22 * 60);
+});
+
 test("a routine marker does not block a task at the same time", () => {
   const routine: PlannedTask = {
     id: "skin-task",

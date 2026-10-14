@@ -1,6 +1,7 @@
 import type { Item } from "@/data/inventory-mock";
 import { intervalOf, repeatsEveryDay } from "@/lib/inventory/frequency";
 import type { NewPlannedTaskInput, PlannedTask } from "@/lib/db/map-rows";
+import { BUSINESS_END_MIN, BUSINESS_START_MIN, isBusinessErrand } from "@/lib/planner/life-dump";
 
 /** Priority sort: lower = schedule first (more urgent). */
 const PRIORITY_ORDER: Record<Item["priority"], number> = {
@@ -40,6 +41,8 @@ export type PlanMyWeekResult = {
 
 function dueDateOnlyISO(nextDue: string | null): string | null {
   if (!nextDue) return null;
+  const leading = nextDue.match(/^(\d{4}-\d{2}-\d{2})/);
+  if (leading && /T12:00:00/.test(nextDue)) return leading[1];
   const d = new Date(nextDue);
   if (!Number.isFinite(d.getTime())) return null;
   const y = d.getFullYear();
@@ -141,6 +144,8 @@ function dayPlacementBounds(
   todayISO: string,
   now: Date,
   dayStartMin: number,
+  wakeMin?: number,
+  windDownMin?: number,
 ): { minStart: number; maxEnd: number } | null {
   const dur = Math.max(1, item.estimated_minutes);
   const notBefore = dayISO === todayISO ? minutesNowCeil(now) : dayStartMin;
@@ -148,7 +153,10 @@ function dayPlacementBounds(
   let bandMin: number;
   let bandMaxEnd: number;
 
-  if (item.flexibility === "Flexible anytime") {
+  if (isBusinessErrand(item) && item.flexibility !== "Fixed") {
+    bandMin = BUSINESS_START_MIN;
+    bandMaxEnd = BUSINESS_END_MIN;
+  } else if (item.flexibility === "Flexible anytime") {
     bandMin = dayStartMin;
     bandMaxEnd = SCHEDULE_LAST_END_MIN;
   } else {
@@ -173,8 +181,10 @@ function dayPlacementBounds(
     }
   }
 
-  const minStart = Math.max(bandMin, notBefore, dayStartMin);
-  const maxEnd = Math.min(bandMaxEnd, SCHEDULE_LAST_END_MIN);
+  if (wakeMin != null) bandMin = Math.max(bandMin, wakeMin);
+  if (windDownMin != null) bandMaxEnd = Math.min(bandMaxEnd, windDownMin);
+  const minStart = Math.max(bandMin, notBefore, wakeMin == null ? dayStartMin : Math.max(dayStartMin, wakeMin));
+  const maxEnd = Math.min(bandMaxEnd, windDownMin ?? SCHEDULE_LAST_END_MIN);
   if (minStart + dur > maxEnd) return null;
   return { minStart, maxEnd };
 }
@@ -354,15 +364,16 @@ function tryPlaceFixed(
 ): string | null {
   const startMin = parseHHMM(item.fixed_start_time);
   if (startMin == null) return null;
+  void dayStartMin;
   const dur = Math.max(1, item.estimated_minutes);
   const endMin = startMin + dur;
-  if (endMin > SCHEDULE_LAST_END_MIN) return null;
+  if (endMin > 24 * 60) return null;
 
   for (const dayIdx of dayIndices) {
     const dateISO = weekDayISOs[dayIdx]!;
     if (dateISO < todayISO) continue;
-    const notBefore = dateISO === todayISO ? minutesNowCeil(now) : dayStartMin;
-    if (startMin < Math.max(notBefore, dayStartMin)) continue;
+    const notBefore = dateISO === todayISO ? minutesNowCeil(now) : 0;
+    if (startMin < notBefore) continue;
     const quiet = item.type === "anchor";
     const ivs = quiet ? [] : (dayIntervals.get(dateISO) ?? []);
     if (!quiet && slotOverlaps(ivs, startMin, endMin)) continue;
@@ -396,6 +407,8 @@ function tryPlaceOnDays(
   dayIntervals: Map<string, { start: number; end: number }[]>,
   loads: number[],
   outputs: NewPlannedTaskInput[],
+  wakeMin?: number,
+  windDownMin?: number,
 ): string | null {
   if (item.flexibility === "Fixed" && item.fixed_start_time) {
     return tryPlaceFixed(
@@ -417,7 +430,7 @@ function tryPlaceOnDays(
     const dateISO = weekDayISOs[dayIdx]!;
     if (dateISO < todayISO) continue;
 
-    const bounds = dayPlacementBounds(item, dateISO, todayISO, now, dayStartMin);
+    const bounds = dayPlacementBounds(item, dateISO, todayISO, now, dayStartMin, wakeMin, windDownMin);
     if (!bounds) continue;
 
     const quiet = item.type === "anchor";
@@ -456,19 +469,32 @@ export type PlanScheduleOptions = {
   now?: Date;
   /** Minutes from midnight. Defaults to 6:00. */
   dayStartMin?: number;
+  /** Ordinary tasks stay at or after this. Fixed events can sit earlier. */
+  wakeMin?: number;
+  /** Ordinary tasks finish by this. Fixed events can run later. */
+  windDownMin?: number;
 };
 
-function resolveSchedule(input?: Date | PlanScheduleOptions): { now: Date; dayStartMin: number } {
+function resolveSchedule(input?: Date | PlanScheduleOptions): {
+  now: Date;
+  dayStartMin: number;
+  wakeMin?: number;
+  windDownMin?: number;
+} {
   if (input instanceof Date || input == null) {
     return { now: input ?? new Date(), dayStartMin: DEFAULT_DAY_START_MIN };
   }
   const dayStart = input.dayStartMin;
+  const wake = input.wakeMin;
+  const wind = input.windDownMin;
   return {
     now: input.now ?? new Date(),
     dayStartMin:
       typeof dayStart === "number" && dayStart >= 0 && dayStart <= 20 * 60
         ? dayStart
         : DEFAULT_DAY_START_MIN,
+    wakeMin: typeof wake === "number" && wake >= 0 && wake < 24 * 60 ? wake : undefined,
+    windDownMin: typeof wind === "number" && wind > 0 && wind <= 24 * 60 ? wind : undefined,
   };
 }
 
@@ -479,7 +505,7 @@ export function buildPlanMyWeekInputs(
   todayISO: string,
   nowOrOptions: Date | PlanScheduleOptions = new Date(),
 ): PlanMyWeekResult {
-  const { now, dayStartMin } = resolveSchedule(nowOrOptions);
+  const { now, dayStartMin, wakeMin, windDownMin } = resolveSchedule(nowOrOptions);
   const empty: PlanMyWeekResult = { inputs: [], deferred: [] };
   if (weekDayISOs.length === 0) return empty;
 
@@ -543,7 +569,11 @@ export function buildPlanMyWeekInputs(
 
     let allowed: number[];
 
-    if (item.type === "one_off") {
+    if (item.type === "one_off" && item.flexibility === "Fixed" && item.fixed_start_time) {
+      const due = dueDateOnlyISO(item.next_due_date);
+      const idx = due ? weekDayISOs.indexOf(due) : -1;
+      allowed = idx >= 0 ? [idx] : [];
+    } else if (item.type === "one_off") {
       allowed = allowedDayIndicesOneOff(item, weekDayISOs, dueISO, weekStartISO);
     } else if (usesHardPreferredDays(item)) {
       const prefLower = new Set(item.preferred_days!.map((p) => p.trim().toLowerCase()));
@@ -623,6 +653,8 @@ export function buildPlanMyWeekInputs(
             dayIntervals,
             loads,
             outputs,
+            wakeMin,
+            windDownMin,
           );
           if (!placedIso) break;
           countOnDay.set(`${item.id}|${placedIso}`, (countOnDay.get(`${item.id}|${placedIso}`) ?? 0) + 1);
@@ -649,6 +681,8 @@ export function buildPlanMyWeekInputs(
         dayIntervals,
         loads,
         outputs,
+        wakeMin,
+        windDownMin,
       );
       if (
         !placedIso &&
@@ -670,6 +704,8 @@ export function buildPlanMyWeekInputs(
           dayIntervals,
           loads,
           outputs,
+          wakeMin,
+          windDownMin,
         );
       }
       if (!placedIso) break;
@@ -704,6 +740,8 @@ export function suggestSlot(
   todayISO: string,
   now: Date,
   dayStartMin: number = DEFAULT_DAY_START_MIN,
+  wakeMin?: number,
+  windDownMin?: number,
 ): { scheduled_date: string; scheduled_time_start: string; scheduled_time_end: string } | null {
   const days = candidateDayISOs.filter((iso) => iso >= todayISO);
   if (days.length === 0) return null;
@@ -730,6 +768,8 @@ export function suggestSlot(
     dayIntervals,
     days.map(() => 0),
     outputs,
+    wakeMin,
+    windDownMin,
   );
   const first = outputs[0];
   if (!placed || !first?.scheduled_time_start || !first.scheduled_time_end) return null;

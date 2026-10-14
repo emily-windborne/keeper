@@ -3,10 +3,19 @@ import { createClient } from "@/lib/supabase/server";
 import { completeStructuredJson } from "@/lib/api/anthropic-json";
 import type { BrainDumpItemDraft, ParseBrainDumpResponseBody } from "@/lib/api/brain-dump-types";
 import { sanitizeBrainDumpItem } from "@/lib/inventory/brain-dump-sanitize";
+import { REASONING_MODEL } from "@/lib/api/models";
+import {
+  clockPrompt,
+  draftsFromPlaced,
+  leftoverLifeDump,
+  repairModelDrafts,
+  scheduleLifeDump,
+  type LifeClock,
+} from "@/lib/planner/life-dump";
 
 export const runtime = "nodejs";
 
-const MODEL = "claude-haiku-5-5";
+const MODEL = REASONING_MODEL;
 
 const BRAIN_DUMP_SCHEMA = {
   type: "object",
@@ -33,6 +42,8 @@ const BRAIN_DUMP_SCHEMA = {
           "cadence_pressure",
           "minimum_success_threshold",
           "notes",
+          "fixed_start_time",
+          "next_due_date",
         ],
         properties: {
           title: { type: "string" },
@@ -58,6 +69,8 @@ const BRAIN_DUMP_SCHEMA = {
           },
           minimum_success_threshold: { type: "string" },
           notes: { type: "string" },
+          fixed_start_time: { type: "string" },
+          next_due_date: { type: "string" },
         },
       },
     },
@@ -98,7 +111,11 @@ Rules:
 - preferred_days: lowercase English weekday names when the text implies fixed days, otherwise an empty array.
 - estimated_minutes: realistic (5–180 for most home tasks unless clearly longer).
 - cadence_pressure: "Must stay on cadence" for strict medical/kid deadlines; "Can defer" for low stakes.
-- flexibility: "Fixed" only when times/days are rigid in the text.
+- flexibility: "Fixed" when the person names a date and a clock time, or a start and end such as 2 to 5 PM. Set fixed_start_time to 24-hour HH:MM and next_due_date to YYYY-MM-DD. The duration is the difference, so 2 to 5 PM is 180 minutes starting at 14:00. Leave both strings empty when there is no stated day or time.
+- Errands at a business (UPS, a store, auto parts, a shop, a pickup) stay between 9:00 AM and 5:00 PM unless the person names another time. Respect "before 5 PM" and "after" ordering.
+- Do not schedule ordinary tasks before wake time or after wind-down. A stated fixed time may sit outside that window.
+- Meetings and calls the person already has are fixed events and count as busy.
+- Write notes in 12-hour time, such as 5:20 PM, never 17:20.
 - Split distinct responsibilities into separate items.
 - If the text is empty of obligations, return "items": [].`;
 
@@ -108,11 +125,6 @@ function blankToNull(value: unknown): unknown {
 }
 
 export async function POST(request: Request) {
-  const apiKey = process.env.ANTHROPIC_API_KEY?.trim();
-  if (!apiKey) {
-    return NextResponse.json({ error: "Server missing ANTHROPIC_API_KEY." }, { status: 503 });
-  }
-
   let body: unknown;
   try {
     body = await request.json();
@@ -137,7 +149,26 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
   }
 
-  const userPrompt = `Parse the following into structured inventory items:\n\n${text}`;
+  const clock = readClock(body);
+  const placed = scheduleLifeDump(text, clock);
+  const known = draftsFromPlaced(placed);
+  const leftover = leftoverLifeDump(text, clock);
+
+  if (leftover.trim().length < 8) {
+    const out: ParseBrainDumpResponseBody = { items: known };
+    return NextResponse.json(out);
+  }
+
+  const apiKey = process.env.ANTHROPIC_API_KEY?.trim();
+  if (!apiKey) {
+    if (known.length > 0) {
+      const out: ParseBrainDumpResponseBody = { items: known };
+      return NextResponse.json(out);
+    }
+    return NextResponse.json({ error: "Server missing ANTHROPIC_API_KEY." }, { status: 503 });
+  }
+
+  const userPrompt = `${clockPrompt(clock)}\n\nParse the following into structured inventory items:\n\n${leftover}`;
 
   const completed = await completeStructuredJson(apiKey, {
     model: MODEL,
@@ -145,6 +176,7 @@ export async function POST(request: Request) {
     user: userPrompt,
     schema: BRAIN_DUMP_SCHEMA as unknown as Record<string, unknown>,
     maxTokens: 16000,
+    effort: "high",
   });
   if ("error" in completed) {
     return NextResponse.json({ error: completed.error }, { status: completed.status });
@@ -172,6 +204,8 @@ export async function POST(request: Request) {
           preferred_time_of_day: blankToNull(source.preferred_time_of_day),
           notes: blankToNull(source.notes),
           minimum_success_threshold: blankToNull(source.minimum_success_threshold),
+          fixed_start_time: blankToNull(source.fixed_start_time),
+          next_due_date: blankToNull(source.next_due_date),
           preferred_days: Array.isArray(source.preferred_days) && source.preferred_days.length === 0
             ? null
             : source.preferred_days,
@@ -181,6 +215,21 @@ export async function POST(request: Request) {
     if (sanitized) items.push(sanitized);
   }
 
-  const out: ParseBrainDumpResponseBody = { items };
+  const out: ParseBrainDumpResponseBody = { items: [...known, ...repairModelDrafts(items, clock)] };
   return NextResponse.json(out);
+}
+
+function readClock(body: unknown): LifeClock {
+  const raw = body as { now?: { date?: unknown; time?: unknown; time_zone?: unknown }; wake_minutes?: unknown; wind_down_minutes?: unknown };
+  const date = typeof raw.now?.date === "string" && /^\d{4}-\d{2}-\d{2}$/.test(raw.now.date) ? raw.now.date : todayUTC();
+  const time = typeof raw.now?.time === "string" ? raw.now.time.match(/^(\d{1,2}):(\d{2})$/) : null;
+  const nowMinutes = time ? Number(time[1]) * 60 + Number(time[2]) : 8 * 60;
+  const timeZone = typeof raw.now?.time_zone === "string" && raw.now.time_zone.trim() ? raw.now.time_zone.trim().slice(0, 80) : "UTC";
+  const wake = typeof raw.wake_minutes === "number" ? raw.wake_minutes : undefined;
+  const wind = typeof raw.wind_down_minutes === "number" ? raw.wind_down_minutes : undefined;
+  return { todayISO: date, nowMinutes, timeZone, wakeMin: wake, windMin: wind };
+}
+
+function todayUTC(): string {
+  return new Date().toISOString().slice(0, 10);
 }

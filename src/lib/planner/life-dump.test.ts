@@ -1,0 +1,108 @@
+import assert from "node:assert/strict";
+import test from "node:test";
+import {
+  EMILY_WEEK_DUMP,
+  addDaysISO,
+  interpretLifeDump,
+  resolveRelativeDate,
+  resolveWeekday,
+  scheduleLifeDump,
+  validatePlacements,
+  type LifeClock,
+  type PlacedLife,
+} from "@/lib/planner/life-dump";
+
+const CLOCK: LifeClock = {
+  todayISO: "2026-10-13",
+  nowMinutes: 20 * 60 + 30,
+  timeZone: "America/New_York",
+  wakeMin: 8 * 60,
+  windMin: 22 * 60,
+};
+
+function byTitle(rows: PlacedLife[], title: string): PlacedLife {
+  const found = rows.find((row) => row.title === title);
+  assert.ok(found, title);
+  return found!;
+}
+
+test("tomorrow and this coming Sunday use the real current day", () => {
+  assert.equal(resolveRelativeDate("tomorrow", "2026-10-13"), "2026-10-14");
+  assert.equal(resolveWeekday("sunday", "2026-10-13", false), "2026-10-18");
+  assert.equal(resolveRelativeDate("this coming Sunday", "2026-10-13"), "2026-10-18");
+  assert.equal(addDaysISO("2026-10-13", 1), "2026-10-14");
+});
+
+test("Emily's Tuesday note keeps the craft afternoon fixed on Sunday", () => {
+  const rows = scheduleLifeDump(EMILY_WEEK_DUMP, CLOCK);
+  const crafts = byTitle(rows, "Girls crafts");
+  assert.equal(crafts.dateISO, "2026-10-18");
+  assert.equal(crafts.startMin, 14 * 60);
+  assert.equal(crafts.endMin, 17 * 60);
+  assert.equal(crafts.durationMin, 180);
+  assert.equal(crafts.stated, true);
+});
+
+test("tomorrow's calls and meetings stay at the times she named", () => {
+  const rows = scheduleLifeDump(EMILY_WEEK_DUMP, CLOCK);
+  const video = byTitle(rows, "Video call");
+  assert.equal(video.dateISO, "2026-10-14");
+  assert.equal(video.startMin, 10 * 60);
+  assert.equal(video.endMin, 11 * 60);
+  assert.equal(video.inPerson, false);
+
+  const meetings = rows.filter((row) => /meeting in jupiter/i.test(row.title));
+  assert.equal(meetings.length, 2);
+  assert.equal(meetings[0]?.startMin, 11 * 60);
+  assert.equal(meetings[0]?.endMin, 11 * 60 + 30);
+  assert.equal(meetings[1]?.startMin, 11 * 60 + 30);
+  assert.equal(meetings[1]?.dateISO, "2026-10-14");
+  assert.equal(meetings.every((row) => row.inPerson), true);
+});
+
+test("errands stay in business hours, in order, and off her meetings", () => {
+  const rows = scheduleLifeDump(EMILY_WEEK_DUMP, CLOCK);
+  const glasses = byTitle(rows, "Pick up mom's eyeglasses");
+  const smoke = byTitle(rows, "Smoke shop");
+  const ups = byTitle(rows, "Ship package at UPS");
+  const coolant = byTitle(rows, "Get coolant");
+  const errands = [glasses, smoke, ups, coolant];
+
+  for (const row of errands) {
+    assert.ok(row.startMin >= 9 * 60, row.title);
+    assert.ok(row.endMin <= 17 * 60, row.title);
+    assert.ok(row.startMin >= 8 * 60 && row.endMin <= 22 * 60, row.title);
+    assert.notEqual(row.dateISO, "2026-10-13");
+  }
+
+  assert.equal(glasses.dateISO, smoke.dateISO);
+  assert.equal(smoke.dateISO, ups.dateISO);
+  assert.ok(smoke.startMin >= glasses.endMin);
+  assert.ok(ups.startMin >= smoke.endMin);
+  assert.ok(glasses.endMin <= 17 * 60);
+
+  const meetings = rows.filter((row) => row.stated && row.dateISO === glasses.dateISO);
+  for (const errand of errands.filter((row) => row.dateISO === glasses.dateISO)) {
+    for (const meeting of meetings) {
+      const overlaps = errand.startMin < meeting.endMin && errand.endMin > meeting.startMin;
+      assert.equal(overlaps, false, errand.title);
+    }
+  }
+});
+
+test("a 10 PM errand is rejected and put back inside business hours", () => {
+  const intents = interpretLifeDump(EMILY_WEEK_DUMP, CLOCK);
+  const ups = intents.find((row) => row.title === "Ship package at UPS");
+  assert.ok(ups);
+  const bad = scheduleLifeDump(EMILY_WEEK_DUMP, CLOCK).map((row) =>
+    row.title === "Ship package at UPS"
+      ? { ...row, dateISO: "2026-10-14", startMin: 22 * 60, endMin: 22 * 60 + 30 }
+      : row,
+  );
+  const checked = validatePlacements(bad, intents, CLOCK);
+  assert.ok(checked.problems.some((problem) => problem.title === "Ship package at UPS"));
+  const fixed = checked.fixed.find((row) => row.title === "Ship package at UPS");
+  assert.ok(fixed);
+  assert.ok(fixed.startMin >= 9 * 60 && fixed.endMin <= 17 * 60);
+  assert.ok(fixed.startMin >= 8 * 60 && fixed.endMin <= 22 * 60);
+});
