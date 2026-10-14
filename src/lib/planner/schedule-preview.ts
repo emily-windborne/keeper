@@ -1,6 +1,7 @@
 import type { Item } from "@/data/inventory-mock";
 import type { NewPlannedTaskInput, PlannedTask } from "@/lib/db/map-rows";
 import type { RefineChange } from "@/lib/api/refine-types";
+import { formatDayAndRange } from "@/lib/planner/clock-label";
 import { DEFAULT_DAY_START_MIN, suggestSlot, type DeferredPlanNotice } from "@/lib/planner/plan-my-week";
 
 export type SchedulePreviewRow = {
@@ -21,14 +22,8 @@ export type SchedulePreviewRow = {
 };
 
 function formatWhen(dateISO: string, start: string | null, end: string | null): string {
-  const day = new Date(`${dateISO}T12:00:00`).toLocaleDateString(undefined, {
-    weekday: "short",
-    month: "short",
-    day: "numeric",
-  });
-  if (!start) return day;
-  if (!end) return `${day}, ${start}`;
-  return `${day}, ${start} to ${end}`;
+  if (!start) return formatDayAndRange(dateISO, null, null);
+  return formatDayAndRange(dateISO, start, end ?? null);
 }
 
 function asTask(input: NewPlannedTaskInput, id: string): PlannedTask {

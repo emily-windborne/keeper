@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@lib/supabase";
 import { clockToMinutes, minutesToClock } from "@/lib/notifications/digest";
+import { formatClock } from "@/lib/planner/clock-label";
 import {
   browserTimeZone,
   isIphoneWithoutHomeScreen,
@@ -160,7 +161,7 @@ export default function SettingsPage() {
         </p>
       </header>
       <label className="mb-6 block max-w-sm">
-        <span className="mb-2 block text-sm font-medium text-ink">Day starts at</span>
+        <span className="mb-2 block text-sm font-medium text-ink">Day starts at {formatClock(dayStart)}</span>
         <input
           type="time"
           value={dayStart}
@@ -225,7 +226,7 @@ export default function SettingsPage() {
           </span>
         </label>
         <label className="mt-3 block">
-          <span className="mb-2 block text-sm font-medium text-ink">Morning time</span>
+          <span className="mb-2 block text-sm font-medium text-ink">Morning time {formatClock(morningTime)}</span>
           <input
             type="time"
             value={morningTime}

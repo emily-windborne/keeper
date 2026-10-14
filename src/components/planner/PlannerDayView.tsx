@@ -5,6 +5,7 @@ import type { PlannedTask } from "@/lib/db/map-rows";
 import { CategoryIcon } from "@/components/CategoryIcon";
 import { consumeBackgroundClick, DragBlock } from "@/components/planner/DragBlock";
 import { timeStartToHour, parseTimeToMinutesSinceMidnight } from "@/components/planner/planner-view-utils";
+import { formatClock, formatClockRange } from "@/lib/planner/clock-label";
 import { minutesFromPointerY, minutesToHHMM, TIMELINE_END_MIN, TIMELINE_START_MIN } from "@/lib/planner/time-snap";
 
 const DAY_START_HOUR = 6;
@@ -22,9 +23,7 @@ function displayedDurationMinutes(task: PlannedTask, item: Item): number {
 }
 
 function formatHourLabel(hour: number): string {
-  const d = new Date();
-  d.setHours(hour, 0, 0, 0);
-  return d.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
+  return formatClock(`${hour}:00`);
 }
 
 export function PlannerDayView({
@@ -105,10 +104,7 @@ export function PlannerDayView({
             </div>
             <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-[12px] text-ink-muted sm:text-[13px]">
               {task.scheduled_time_start && (
-                <span>
-                  {task.scheduled_time_start}
-                  {task.scheduled_time_end ? ` – ${task.scheduled_time_end}` : ""}
-                </span>
+                <span>{formatClockRange(task.scheduled_time_start, task.scheduled_time_end)}</span>
               )}
               <span>{dur} min</span>
             </div>
@@ -153,7 +149,9 @@ export function PlannerDayView({
                     <span className="h-2.5 w-2.5 shrink-0 rounded-full bg-accent" aria-hidden />
                     <span className="min-w-0 flex-1 truncate text-[14px] text-ink">{task.title_snapshot}</span>
                     {task.scheduled_time_start && (
-                      <span className="text-[12px] text-ink-muted">{task.scheduled_time_start}</span>
+                      <span className="text-[12px] text-ink-muted">
+                        {formatClock(task.scheduled_time_start)}
+                      </span>
                     )}
                   </button>
                 </li>
@@ -241,7 +239,7 @@ export function PlannerDayView({
                 endMin={endMin}
                 hourPx={HOUR_PX}
                 dateISO={dateISO}
-                ariaLabel={`${task.title_snapshot}, ${task.scheduled_time_start ?? ""}. Drag to move, or drag the gold bar to change the length.`}
+                ariaLabel={`${task.title_snapshot}, ${formatClockRange(task.scheduled_time_start, task.scheduled_time_end)}. Drag to move, or drag the gold bar to change the length.`}
                 className="absolute left-1 right-1 z-[5] overflow-hidden rounded-[12px] border border-border bg-[#f6f4f0] px-2 py-1 text-left shadow-soft"
                 style={{ top, height }}
                 onOpen={() => onOpenTask(task.id)}
@@ -255,7 +253,7 @@ export function PlannerDayView({
               >
                 <span className="block truncate text-[13px] font-semibold text-ink">{task.title_snapshot}</span>
                 <span className="block text-[11px] text-ink-muted">
-                  {minutesToHHMM(startMin)} to {minutesToHHMM(endMin)}
+                  {formatClockRange(minutesToHHMM(startMin), minutesToHHMM(endMin))}
                 </span>
                 <span className="sr-only">{item.title}</span>
               </DragBlock>

@@ -1,25 +1,41 @@
 "use client";
 
+/** Undo notes stay up long enough to tap, then get out of the way. */
+export const TOAST_DISMISS_MS = 4000;
+
 export function ToastView({
   message,
   onUndo,
+  onDismiss,
 }: {
   message: string;
   onUndo?: () => void | Promise<void>;
+  onDismiss: () => void;
 }) {
   return (
-    <div className="fixed bottom-[calc(4rem+env(safe-area-inset-bottom)+1.25rem)] left-1/2 z-[90] w-[calc(100%-2rem)] max-w-md -translate-x-1/2">
-      <div className="flex flex-col items-stretch gap-2 rounded-[20px] border border-border bg-surface-raised px-4 py-3 text-[13px] text-ink-muted shadow-soft sm:flex-row sm:items-center sm:justify-between sm:gap-3">
-        <p className="text-center sm:flex-1 sm:text-left">{message}</p>
-        {onUndo && (
+    <div
+      className="pointer-events-none fixed inset-x-0 top-0 z-[90] flex justify-center px-3 pt-[max(0.35rem,env(safe-area-inset-top))]"
+      role="status"
+    >
+      <div className="pointer-events-auto flex w-full max-w-md items-center gap-1 rounded-full border border-[#e5dad0] bg-[#f6f4f0] py-0.5 pl-3 pr-1 text-[13px] text-[#0f394c] shadow-soft">
+        <p className="min-w-0 flex-1 truncate">{message}</p>
+        {onUndo ? (
           <button
             type="button"
             onClick={() => void onUndo()}
-            className="min-h-11 shrink-0 rounded-full border border-border bg-surface-alt px-3 py-1.5 text-[13px] font-medium text-ink hover:border-accent/25"
+            className="min-h-11 shrink-0 px-2 text-[13px] font-semibold text-[#0f394c]"
           >
             Undo
           </button>
-        )}
+        ) : null}
+        <button
+          type="button"
+          onClick={onDismiss}
+          aria-label="Dismiss"
+          className="min-h-11 min-w-11 shrink-0 text-[18px] leading-none text-[#0f394c]"
+        >
+          ×
+        </button>
       </div>
     </div>
   );

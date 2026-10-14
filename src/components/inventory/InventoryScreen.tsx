@@ -7,7 +7,7 @@ import { ConfirmSheet } from "@/components/ConfirmSheet";
 import { FloatingAddButton, LIST_CLEARANCE_ABOVE_ADD_CLASS } from "@/components/FloatingAddButton";
 import { AddItemSheet } from "@/components/inventory/AddItemSheet";
 import { InventoryItemRow } from "@/components/inventory/InventoryItemRow";
-import { ToastView } from "@/components/planner/ToastView";
+import { TOAST_DISMISS_MS, ToastView } from "@/components/planner/ToastView";
 import { type Item, type ItemCategory } from "@/data/inventory-mock";
 import { itemToInsertRow, mapItemRow, mapPlannedTaskRow, plannedTaskToInsertRow, type PlannedTask } from "@/lib/db/map-rows";
 import { clearPendingItemDelete, readPendingItemDelete, type PendingItemDelete } from "@/lib/inventory/pending-delete";
@@ -160,7 +160,7 @@ export function InventoryScreen() {
         holdingPendingDelete.current = false;
         clearPendingItemDelete();
       }
-    }, toast.onUndo ? 12000 : 2600);
+    }, TOAST_DISMISS_MS);
     return () => window.clearTimeout(timer);
   }, [toast]);
 
@@ -338,7 +338,9 @@ export function InventoryScreen() {
         onSecondary={() => void archiveConfirmedItem()}
         onCancel={() => setConfirmItem(null)}
       />
-      {toast ? <ToastView message={toast.message} onUndo={toast.onUndo} /> : null}
+      {toast ? (
+        <ToastView message={toast.message} onUndo={toast.onUndo} onDismiss={() => setToast(null)} />
+      ) : null}
     </div>
   );
 }

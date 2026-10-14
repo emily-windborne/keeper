@@ -11,6 +11,7 @@ import type {
   FrequencyType,
 } from "@/data/inventory-mock";
 import type { BrainDumpItemDraft } from "@/lib/api/brain-dump-types";
+import { formatClocksInText } from "@/lib/planner/clock-label";
 import { formatPreferredDays, parsePreferredDaysInput } from "@/lib/inventory/preferred-days";
 import { CategoryIcon } from "@/components/CategoryIcon";
 
@@ -87,7 +88,14 @@ export function BrainDumpPreviewSheet({
 
   useEffect(() => {
     if (!open) return;
-    const next = initialDrafts.map((d) => ({ ...d, _key: rowId() }));
+    const next = initialDrafts.map((d) => ({
+      ...d,
+      _key: rowId(),
+      notes: d.notes ? formatClocksInText(d.notes) : d.notes,
+      minimum_success_threshold: d.minimum_success_threshold
+        ? formatClocksInText(d.minimum_success_threshold)
+        : d.minimum_success_threshold,
+    }));
     setRows(next);
     const dt: Record<string, string> = {};
     const mt: Record<string, string> = {};

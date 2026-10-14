@@ -4,6 +4,7 @@ import { createClient } from "@lib/supabase";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { toISODate } from "@/components/planner/planner-view-utils";
 import { mapItemRow, mapPlannedTaskRow, type PlannedTask } from "@/lib/db/map-rows";
+import { formatClock } from "@/lib/planner/clock-label";
 import { markPlannedTaskDone } from "@/lib/planner/mark-task-done";
 import { saveNextRepeats } from "@/lib/planner/next-repeat";
 import { loadUserSettings } from "@/lib/settings/user-settings";
@@ -70,11 +71,8 @@ function taskSnapshotTitle(u: TaskUpdateRow): string {
 
 function taskTimeLabel(value: string | null): string | null {
   if (!value) return null;
-  const match = value.match(/^(\d{1,2}):(\d{2})/);
-  if (!match) return null;
-  const date = new Date();
-  date.setHours(Number(match[1]), Number(match[2]), 0, 0);
-  return date.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
+  const label = formatClock(value);
+  return label || null;
 }
 
 function TomorrowPreview({ tasks }: { tasks: PlannedTask[] }) {

@@ -35,7 +35,7 @@ import { AddToWeekSheet } from "@/components/planner/AddToWeekSheet";
 import { AskKeeperPanel } from "@/components/planner/AskKeeperPanel";
 import { BrainDumpPreviewSheet } from "@/components/planner/BrainDumpPreviewSheet";
 import { TaskActionsSheet } from "@/components/planner/TaskActionsSheet";
-import { ToastView } from "@/components/planner/ToastView";
+import { TOAST_DISMISS_MS, ToastView } from "@/components/planner/ToastView";
 import { markPlannedTaskDone } from "@/lib/planner/mark-task-done";
 import { applyPlanMyWeek } from "@/lib/planner/apply-plan-my-week";
 import { DEFAULT_DAY_START_MIN } from "@/lib/planner/plan-my-week";
@@ -246,7 +246,7 @@ export function PlannerScreen() {
 
   useEffect(() => {
     if (!toast) return;
-    const ms = toast.onUndo ? 12000 : 2600;
+    const ms = TOAST_DISMISS_MS;
     const t = window.setTimeout(() => setToast(null), ms);
     return () => window.clearTimeout(t);
   }, [toast]);
@@ -1499,6 +1499,7 @@ export function PlannerScreen() {
         <ToastView
           message={toast.message}
           onUndo={toast.onUndo}
+          onDismiss={() => setToast(null)}
         />
       )}
     </div>
