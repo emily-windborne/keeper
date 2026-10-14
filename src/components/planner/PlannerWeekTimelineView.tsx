@@ -417,7 +417,7 @@ export function PlannerWeekTimelineView({
                 />
               )}
 
-              {shown.map(({ task, item, startMin, endMin, rangeStart, rangeEnd, lane, extra }) => {
+              {shown.map(({ task, item, startMin, endMin, lane, lanes, extra }) => {
                 const durationMin = Math.max(15, endMin - startMin);
                 const topPx =
                   timelineTop + ((startMin - timelineStartMin) / totalTimelineMin) * TIMELINE_HEIGHT;
@@ -427,14 +427,8 @@ export function PlannerWeekTimelineView({
                 const when = routine
                   ? formatClockRange(minutesToHHMM(startMin), minutesToHHMM(startMin + durationMin))
                   : formatClockRange(task.scheduled_time_start, task.scheduled_time_end);
-                const paired = shown.some(
-                  (other) =>
-                    other.task.id !== task.id &&
-                    other.lane !== lane &&
-                    other.rangeStart < rangeEnd &&
-                    rangeStart < other.rangeEnd,
-                );
-                const size = paired ? 22 : 28;
+                const shared = lanes > 1;
+                const size = lanes === 1 ? 28 : lanes === 2 ? 20 : 14;
 
                 return (
                   <div key={task.id}>
@@ -446,11 +440,10 @@ export function PlannerWeekTimelineView({
                       className="absolute z-[5] inline-flex items-start justify-center"
                       style={{
                         top: topPx,
-                        width: paired ? size + 4 : "100%",
-                        height: paired ? size + 4 : 44,
-                        left: paired ? (lane === 0 ? 0 : undefined) : "50%",
-                        right: paired && lane === 1 ? 0 : undefined,
-                        transform: paired ? undefined : "translateX(-50%)",
+                        width: shared ? `${100 / lanes}%` : "100%",
+                        height: 44,
+                        left: shared ? `${(lane * 100) / lanes}%` : "50%",
+                        transform: shared ? undefined : "translateX(-50%)",
                         opacity: completed || pastRecede ? 0.45 : routine ? 0.8 : 1,
                       }}
                       onClick={(event) =>
@@ -467,8 +460,8 @@ export function PlannerWeekTimelineView({
                     {extra > 0 ? (
                       <button
                         type="button"
-                        className="absolute left-0.5 right-0.5 z-30 flex min-h-11 items-center justify-center rounded-[4px] text-[11px] font-semibold"
-                        style={{ top: topPx + size + 6, backgroundColor: MUSTARD, color: NAVY }}
+                        className="absolute z-30 inline-flex h-6 -translate-x-1/2 items-center justify-center px-0.5 text-[10px] font-semibold leading-none"
+                        style={{ top: topPx + size + 1, left: "50%", color: "rgba(15, 57, 76, 0.55)" }}
                         onClick={() => onOpenDay(iso)}
                         aria-label={`${extra} more at this time`}
                       >
