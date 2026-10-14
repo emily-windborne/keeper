@@ -4,7 +4,7 @@ import { createClient } from "@lib/supabase";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import dynamic from "next/dynamic";
 import { useRouter, useSearchParams } from "next/navigation";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
 import type { Item } from "@/data/inventory-mock";
 import { PlannerCalendarPopover } from "@/components/planner/PlannerCalendarPopover";
 import { PlannerDayView } from "@/components/planner/PlannerDayView";
@@ -772,6 +772,24 @@ export function PlannerScreen() {
     jumpPlannerToDate(toISODate(d));
   }
 
+  const daySwipe = useRef<{ x: number; y: number; pointerId: number } | null>(null);
+
+  function onDayPointerDown(event: ReactPointerEvent<HTMLDivElement>) {
+    const target = event.target as HTMLElement;
+    if (target.closest("[data-task], button, a, input, textarea, select, label")) return;
+    daySwipe.current = { x: event.clientX, y: event.clientY, pointerId: event.pointerId };
+  }
+
+  function onDayPointerUp(event: ReactPointerEvent<HTMLDivElement>) {
+    const start = daySwipe.current;
+    daySwipe.current = null;
+    if (!start || start.pointerId !== event.pointerId) return;
+    const dx = event.clientX - start.x;
+    const dy = event.clientY - start.y;
+    if (Math.abs(dx) < 48 || Math.abs(dx) < Math.abs(dy) * 1.25) return;
+    shiftDay(dx < 0 ? 1 : -1);
+  }
+
   function shiftMonth(delta: -1 | 1) {
     setMonthCursor((prev) => {
       const n = new Date(prev);
@@ -1311,7 +1329,12 @@ export function PlannerScreen() {
               {sectionTitle}
             </h2>
 
-            <div className="mt-4 flex-1 overflow-y-auto pr-1 pb-44">
+            <div
+              className="mt-4 flex-1 overflow-y-auto pr-1 pb-44"
+              onPointerDown={plannerView === "day" ? onDayPointerDown : undefined}
+              onPointerUp={plannerView === "day" ? onDayPointerUp : undefined}
+              onPointerCancel={plannerView === "day" ? () => { daySwipe.current = null; } : undefined}
+            >
               {plannerView === "day" ? (
                 <PlannerDayView
                   tasks={selectedDayTasks}
