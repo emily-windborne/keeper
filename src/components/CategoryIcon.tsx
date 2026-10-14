@@ -29,6 +29,7 @@ export function CategoryIcon({
   variant = "well",
   iconColor,
   weight,
+  size,
 }: {
   category: ItemCategory;
   /** `bare`: icon only, no circular well (e.g. on custom pill backgrounds). */
@@ -37,20 +38,23 @@ export function CategoryIcon({
   iconColor?: string;
   /** Icon style; default `duotone`. Use `fill` for solid single-color glyphs on pills. */
   weight?: IconWeight;
+  /** Glyph size in pixels. Defaults to 20 bare, 22 in a well. */
+  size?: number;
 }) {
   const color = iconColor ?? ICON_COLOR;
   const w = weight ?? "duotone";
   const Icon = CATEGORY_ICON[category as keyof typeof CATEGORY_ICON] ?? CATEGORY_ICON.Home;
+  const px = size ?? (variant === "bare" ? 20 : 22);
   if (variant === "bare") {
     return (
       <span className="inline-flex shrink-0 items-center justify-center" aria-hidden>
-        <Icon weight={w} size={20} color={color} />
+        <Icon weight={w} size={px} color={color} />
       </span>
     );
   }
   return (
     <span className={WRAPPER_CLASS} aria-hidden>
-      <Icon weight={w} size={22} color={color} />
+      <Icon weight={w} size={px} color={color} />
     </span>
   );
 }

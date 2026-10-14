@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import type { Item } from "@/data/inventory-mock";
 import type { PlannedTask } from "@/lib/db/map-rows";
-import { proposalsFromRefine } from "@/lib/planner/schedule-preview";
+import { proposalsFromPlan, proposalsFromRefine } from "@/lib/planner/schedule-preview";
 
 const WEEK = [
   "2026-10-12",
@@ -96,6 +96,27 @@ test("an added task starts after a task that is already there", () => {
     NOW,
   );
   assert.equal(rows[0]?.add?.scheduled_time_start, "07:15");
+});
+
+test("a plan preview reads 5:00 – 5:30 PM, not 17:00", () => {
+  const rows = proposalsFromPlan(
+    [
+      {
+        item_id: "yoga",
+        title_snapshot: "Evening yoga",
+        scheduled_date: "2026-10-14",
+        scheduled_time_start: "17:00",
+        scheduled_time_end: "17:30",
+        status: "planned",
+        priority_override: null,
+        notes: null,
+      },
+    ],
+    [],
+    [],
+  );
+  assert.equal(rows[0]?.detail, "Wed, Oct 14 · 5:00 – 5:30 PM");
+  assert.equal(rows[0]?.detail.includes("17:"), false);
 });
 
 test("a day that is already past is not offered", () => {

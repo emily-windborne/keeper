@@ -12,6 +12,40 @@ const DAY_START_HOUR = 6;
 const DAY_END_HOUR = 23;
 const HOUR_PX = 64;
 
+type DayTimed = {
+  task: PlannedTask;
+  item: Item;
+  startMin: number;
+  endMin: number;
+};
+
+/** Keep each block inside its own time, and sit true overlaps side by side. */
+function layoutDayBlocks(blocks: DayTimed[]) {
+  const sorted = [...blocks].sort((a, b) => a.startMin - b.startMin || a.endMin - b.endMin);
+  const laneEnds: number[] = [];
+  const withLane = sorted.map((block) => {
+    let lane = laneEnds.findIndex((end) => end <= block.startMin);
+    if (lane < 0) {
+      lane = laneEnds.length;
+      laneEnds.push(block.endMin);
+    } else {
+      laneEnds[lane] = block.endMin;
+    }
+    return { ...block, lane };
+  });
+  const laneCount = Math.max(1, laneEnds.length);
+  return withLane.map((block) => {
+    const next = withLane
+      .filter((other) => other.lane === block.lane && other.startMin >= block.endMin)
+      .sort((a, b) => a.startMin - b.startMin)[0];
+    const durationPx = ((block.endMin - block.startMin) / 60) * HOUR_PX;
+    const roomPx = next ? ((next.startMin - block.startMin) / 60) * HOUR_PX - 3 : durationPx;
+    const heightPx = Math.max(20, Math.min(durationPx, Math.max(20, roomPx)));
+    const top = ((block.startMin - TIMELINE_START_MIN) / 60) * HOUR_PX;
+    return { ...block, laneCount, heightPx, top };
+  });
+}
+
 function displayedDurationMinutes(task: PlannedTask, item: Item): number {
   if (task.scheduled_time_start && task.scheduled_time_end) {
     const [sh, sm] = task.scheduled_time_start.split(":").map(Number);
@@ -226,22 +260,23 @@ export function PlannerDayView({
               style={{ top: i * HOUR_PX }}
             />
           ))}
-          {timedBlocks.map(({ task, item, startMin, endMin }) => {
-            const top = ((startMin - TIMELINE_START_MIN) / 60) * HOUR_PX;
-            const height = Math.max(44, ((endMin - startMin) / 60) * HOUR_PX);
+          {layoutDayBlocks(timedBlocks).map(({ task, item, startMin, endMin, lane, laneCount, heightPx, top }) => {
             const editable = task.status !== "done" && task.status !== "skipped";
+            const when = formatClockRange(minutesToHHMM(startMin), minutesToHHMM(endMin));
+            const width = `calc((100% - 8px) / ${laneCount})`;
+            const left = `calc(4px + ${lane} * (100% - 8px) / ${laneCount})`;
             return (
               <DragBlock
                 key={task.id}
                 enabled={editable}
-                canResize={editable}
+                canResize={editable && heightPx >= 56}
                 startMin={startMin}
                 endMin={endMin}
                 hourPx={HOUR_PX}
                 dateISO={dateISO}
-                ariaLabel={`${task.title_snapshot}, ${formatClockRange(task.scheduled_time_start, task.scheduled_time_end)}. Drag to move, or drag the gold bar to change the length.`}
-                className="absolute left-1 right-1 z-[5] overflow-hidden rounded-[12px] border border-border bg-[#f6f4f0] px-2 py-1 text-left shadow-soft"
-                style={{ top, height }}
+                ariaLabel={`${task.title_snapshot}, ${when}. Tap to open.`}
+                className="absolute z-[5] overflow-hidden rounded-[12px] border border-border bg-[#f6f4f0] px-2 py-1 text-left shadow-soft"
+                style={{ top, height: heightPx, width, left }}
                 onOpen={() => onOpenTask(task.id)}
                 onCommit={(next) =>
                   onCommitSchedule(task.id, {
@@ -251,11 +286,15 @@ export function PlannerDayView({
                   })
                 }
               >
-                <span className="block truncate text-[13px] font-semibold text-ink">{task.title_snapshot}</span>
-                <span className="block text-[11px] text-ink-muted">
-                  {formatClockRange(minutesToHHMM(startMin), minutesToHHMM(endMin))}
+                <span className="flex min-w-0 items-center gap-1">
+                  <CategoryIcon category={item.category} variant="bare" size={16} />
+                  <span className="min-w-0 flex-1 truncate text-[13px] font-semibold text-ink">
+                    {task.title_snapshot}
+                  </span>
                 </span>
-                <span className="sr-only">{item.title}</span>
+                {heightPx >= 40 ? (
+                  <span className="mt-0.5 block truncate text-[11px] text-ink-muted">{when}</span>
+                ) : null}
               </DragBlock>
             );
           })}
