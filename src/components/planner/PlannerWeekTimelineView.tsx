@@ -6,6 +6,7 @@ import type { PlannedTask } from "@/lib/db/map-rows";
 import { consumeBackgroundClick, DragBlock } from "@/components/planner/DragBlock";
 import { parseTimeToMinutesSinceMidnight, toISODate } from "@/components/planner/planner-view-utils";
 import { formatClockRange } from "@/lib/planner/clock-label";
+import { isRoutineMarkerId } from "@/lib/planner/routine-markers";
 import { minutesFromPointerY, minutesToHHMM } from "@/lib/planner/time-snap";
 
 const VIEW_BG = "#F7F2EC";
@@ -432,7 +433,7 @@ export function PlannerWeekTimelineView({
                 const completed = isCompletedLook(task);
                 const pastRecede =
                   !completed && isTimedTaskPastToday(iso, todayISO, task, item, nowMs);
-                const editable = !completed;
+                const editable = !completed && !isRoutineMarkerId(task.id);
                 const when = whenLabel(task);
 
                 return (
