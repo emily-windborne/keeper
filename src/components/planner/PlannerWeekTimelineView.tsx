@@ -453,7 +453,9 @@ export function PlannerWeekTimelineView({
                 const pastRecede =
                   !completed && isTimedTaskPastToday(iso, todayISO, task, item, nowMs);
                 const editable = !completed && !isRoutineMarkerId(task.id);
-                const when = whenLabel(task);
+                const when = routine
+                  ? formatClockRange(minutesToHHMM(startMin), minutesToHHMM(startMin + durationMin))
+                  : whenLabel(task);
 
                 return (
                   <Fragment key={task.id}>
