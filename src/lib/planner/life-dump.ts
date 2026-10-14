@@ -35,6 +35,10 @@ export type LifeIntent = {
   business: boolean;
   deadlineMin: number | null;
   afterTitles: string[];
+  /** This stop has to finish before these titles start. */
+  beforeTitles: string[];
+  /** The words this stop was parsed from, used to match "after" and "before". */
+  clause: string;
   location: string | null;
   inPerson: boolean;
   category: ItemCategory;
@@ -171,8 +175,15 @@ function titleFor(clause: string, startMin: number | null): string {
     return `${when}meeting${place}`.replace(/^./, (c) => c.toUpperCase());
   }
   const cleaned = clause
-    .replace(/\b(tomorrow|today|this coming|coming|next|at|before|after those two)\b/gi, " ")
+    .replace(/\b(tomorrow|today|this coming|coming|next|after those two|after those|after both)\b/gi, " ")
+    .replace(/\bon the way(?: back| home)?\b/gi, " ")
+    .replace(/\bonce i(?:'|\u2019)?ve done (?:that|this|it|them)\b/gi, " ")
+    .replace(/\bbefore i (?:go to|head to|stop at|get to|visit|do|see)\s+.+$/i, " ")
+    .replace(/\bat\s+\d{1,2}(?::\d{2})?(?:\s*(?:a\.?m\.?|p\.?m\.?))?/gi, " ")
+    .replace(/\bbefore\s+\d{1,2}(?::\d{2})?(?:\s*(?:a\.?m\.?|p\.?m\.?))?/gi, " ")
     .replace(/\d{1,2}(?::\d{2})?\s*(?:to|–|-)\s*\d{1,2}(?::\d{2})?\s*(?:a\.?m\.?|p\.?m\.?)?/gi, " ")
+    .replace(/\d{1,2}(?::\d{2})?\s*(?:a\.?m\.?|p\.?m\.?)/gi, " ")
+    .replace(/[,.;]+/g, " ")
     .replace(/\s+/g, " ")
     .trim();
   if (!cleaned) return "Plan";
@@ -219,6 +230,78 @@ function expandClause(clause: string): string[] {
   });
 }
 
+const LINK_STOP = new Set([
+  "the", "a", "an", "to", "at", "for", "and", "my", "our", "go", "get", "do", "that", "this", "it", "them",
+]);
+
+function pushUnique(list: string[], title: string) {
+  if (title && !list.includes(title)) list.push(title);
+}
+
+function countWord(token: string | undefined): number {
+  const map: Record<string, number> = { two: 2, three: 3, four: 4, both: 2, "2": 2, "3": 3, "4": 4 };
+  return map[(token ?? "two").toLowerCase()] ?? 2;
+}
+
+function matchTitle(phrase: string, intents: LifeIntent[], self: LifeIntent): LifeIntent | null {
+  const words = phrase
+    .toLowerCase()
+    .replace(/[^a-z0-9 ]/g, " ")
+    .split(/\s+/)
+    .filter((word) => word.length > 2 && !LINK_STOP.has(word));
+  if (words.length === 0) return null;
+  let best: LifeIntent | null = null;
+  let bestScore = 0;
+  for (const intent of intents) {
+    if (intent === self) continue;
+    const hay = `${intent.title} ${intent.clause}`.toLowerCase();
+    const score = words.filter((word) => hay.includes(word)).length;
+    if (score > bestScore) {
+      best = intent;
+      bestScore = score;
+    }
+  }
+  return best;
+}
+
+/** Turn "after", "once I've done", "before I go", and "on the way back" into order. */
+export function linkLifeOrder(intents: LifeIntent[]): LifeIntent[] {
+  intents.forEach((intent, index) => {
+    const text = intent.clause;
+    if (/\bon the way(?: back| home)?\b|\bsame trip\b/i.test(text) && index > 0) {
+      pushUnique(intent.afterTitles, intents[index - 1].title);
+    }
+    const those = text.match(/\bafter (?:those|both|the first)(?:\s+(two|three|four|both|2|3|4))?\b/i);
+    if (those) {
+      const count = /both/i.test(those[0]) && !those[1] ? 2 : countWord(those[1]);
+      for (const prior of intents.slice(Math.max(0, index - count), index)) {
+        pushUnique(intent.afterTitles, prior.title);
+      }
+    }
+    const once = text.match(
+      /\b(?:once (?:i(?:'ve| have)?|we(?:'ve| have)?) (?:done|finished|do|finish)|after (?:i |we )?(?:finish(?:ed|ing)?|doing|do|done))\s+(.+?)(?:[.,;]|$)/i,
+    );
+    if (once && !/\bafter (?:those|both)\b/i.test(text)) {
+      const phrase = once[1].trim();
+      if (/^(that|this|it|them)$/i.test(phrase) && index > 0) {
+        pushUnique(intent.afterTitles, intents[index - 1].title);
+      } else {
+        const target = matchTitle(phrase, intents, intent);
+        if (target) pushUnique(intent.afterTitles, target.title);
+        else if (index > 0) pushUnique(intent.afterTitles, intents[index - 1].title);
+      }
+    }
+    const beforePlace = text.match(/\bbefore I (?:go to|head to|stop at|get to|visit|do|see)\s+(.+?)(?:[.,;]|$)/i);
+    if (beforePlace) {
+      const target = matchTitle(beforePlace[1], intents, intent);
+      if (!target) return;
+      if (target.stated) pushUnique(intent.beforeTitles, target.title);
+      else pushUnique(target.afterTitles, intent.title);
+    }
+  });
+  return intents;
+}
+
 export function interpretLifeDump(text: string, clock: LifeClock): LifeIntent[] {
   const intents: LifeIntent[] = [];
   for (const clause of splitClauses(text)) {
@@ -237,14 +320,9 @@ export function interpretLifeDump(text: string, clock: LifeClock): LifeIntent[] 
         current.durationMin = next.startMin - current.startMin;
       }
     }
-    for (const intent of dated) {
-      if (/\bafter those two\b/i.test(clause) && intents.length >= 2) {
-        intent.afterTitles = intents.slice(-2).map((row) => row.title);
-      }
-      intents.push(intent);
-    }
+    for (const intent of dated) intents.push(intent);
   }
-  return intents;
+  return linkLifeOrder(intents);
 }
 
 function readPiece(clause: string, todayISO: string): LifeIntent {
@@ -267,6 +345,8 @@ function readPiece(clause: string, todayISO: string): LifeIntent {
     business: isErrand(clause),
     deadlineMin: parseDeadline(clause),
     afterTitles: [],
+    beforeTitles: [],
+    clause,
     location: locationOf(clause),
     inPerson: !/video call/i.test(clause) && (/meeting/i.test(clause) || isErrand(clause)),
     category: categoryFor(clause),
@@ -312,17 +392,40 @@ function alreadyPlaced(title: string, placed: PlacedLife[]): boolean {
   return placed.some((row) => row.title === title);
 }
 
+function preferredDates(chain: LifeIntent[], placed: PlacedLife[], todayISO: string): string[] {
+  const pinned = new Set<string>();
+  for (const intent of chain) {
+    for (const title of [...intent.afterTitles, ...intent.beforeTitles]) {
+      const other = placed.find((row) => row.title === title);
+      if (other) pinned.add(other.dateISO);
+    }
+  }
+  const horizon = Array.from({ length: HORIZON_DAYS }, (_, day) => addDaysISO(todayISO, day));
+  if (pinned.size === 0) return horizon;
+  return [...[...pinned].sort(), ...horizon.filter((iso) => !pinned.has(iso))];
+}
+
 function placeChain(
   chain: LifeIntent[],
   busy: Busy[],
   clock: LifeClock,
+  placed: PlacedLife[],
 ): PlacedLife[] | null {
   const wake = clock.wakeMin ?? DEFAULT_WAKE_MIN;
   const wind = clock.windMin ?? DEFAULT_WIND_MIN;
-  for (let day = 0; day < HORIZON_DAYS; day += 1) {
-    const dateISO = addDaysISO(clock.todayISO, day);
+  const dates = preferredDates(chain, placed, clock.todayISO);
+  for (const dateISO of dates) {
+    const dayOffset = Math.round(
+      (Date.parse(`${dateISO}T00:00:00Z`) - Date.parse(`${clock.todayISO}T00:00:00Z`)) / 86_400_000,
+    );
     let cursor = Math.max(BUSINESS_START_MIN, wake);
-    if (day === 0) cursor = Math.max(cursor, clock.nowMinutes);
+    if (dayOffset <= 0) cursor = Math.max(cursor, clock.nowMinutes);
+    for (const intent of chain) {
+      for (const title of intent.afterTitles) {
+        const prior = placed.find((row) => row.title === title && row.dateISO === dateISO);
+        if (prior) cursor = Math.max(cursor, prior.endMin + TRAVEL_MIN);
+      }
+    }
     for (let attempt = 0; attempt < 8; attempt += 1) {
       const draft: PlacedLife[] = [];
       let restartAt: number | null = null;
@@ -337,7 +440,11 @@ function placeChain(
               : TRAVEL_MIN;
         const begin = previous == null ? cursor : previous.endMin + gap;
         const end = begin + intent.durationMin;
-        const latest = Math.min(BUSINESS_END_MIN, wind, intent.deadlineMin ?? BUSINESS_END_MIN);
+        let latest = Math.min(BUSINESS_END_MIN, wind, intent.deadlineMin ?? BUSINESS_END_MIN);
+        for (const title of intent.beforeTitles) {
+          const next = placed.find((row) => row.title === title && row.dateISO === dateISO);
+          if (next) latest = Math.min(latest, next.startMin);
+        }
         const hit = overlaps(begin, end, busy, dateISO, true);
         if (hit) {
           restartAt = Math.max(cursor, jumpPast(hit, true));
@@ -381,7 +488,7 @@ export function placeLifeDump(intents: LifeIntent[], clock: LifeClock): PlacedLi
     if (alreadyPlaced(intent.title, placed)) continue;
     if (flexible.some((row) => row.afterTitles.includes(intent.title))) continue;
     const chain = chainOf(intent, intents).filter((row) => !row.stated && !alreadyPlaced(row.title, placed));
-    const block = placeChain(chain, busy, clock);
+    const block = placeChain(chain, busy, clock, placed);
     if (block) placed.push(...block);
   }
   return placed.sort((a, b) => a.dateISO.localeCompare(b.dateISO) || a.startMin - b.startMin || a.title.localeCompare(b.title));

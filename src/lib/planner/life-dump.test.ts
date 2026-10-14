@@ -90,6 +90,44 @@ test("errands stay in business hours, in order, and off her meetings", () => {
   }
 });
 
+test("once I've done that, the next stop comes later the same day", () => {
+  const rows = scheduleLifeDump(
+    "drop the package at UPS tomorrow; once I've done that, pick up groceries at the store.",
+    CLOCK,
+  );
+  const ups = byTitle(rows, "Ship package at UPS");
+  const groceries = byTitle(rows, "Pick up groceries at the store");
+  assert.equal(groceries.dateISO, ups.dateISO);
+  assert.ok(groceries.startMin >= ups.endMin);
+  assert.ok(groceries.endMin <= 17 * 60);
+});
+
+test("before I go to Y stays earlier that day", () => {
+  const rows = scheduleLifeDump(
+    "buy a card at the store before I go to the post office; go to the post office tomorrow at 3 PM.",
+    CLOCK,
+  );
+  const card = byTitle(rows, "Buy a card at the store");
+  const office = byTitle(rows, "Go to the post office");
+  assert.equal(office.dateISO, "2026-10-14");
+  assert.equal(office.startMin, 15 * 60);
+  assert.equal(card.dateISO, office.dateISO);
+  assert.ok(card.endMin <= office.startMin);
+  assert.ok(card.startMin >= 9 * 60);
+});
+
+test("on the way back stays on the same trip", () => {
+  const rows = scheduleLifeDump(
+    "drive to Stuart to pick up mom's eyeglasses tomorrow; on the way back, stop at UPS.",
+    CLOCK,
+  );
+  const glasses = byTitle(rows, "Pick up mom's eyeglasses");
+  const ups = byTitle(rows, "Ship package at UPS");
+  assert.equal(ups.dateISO, glasses.dateISO);
+  assert.ok(ups.startMin >= glasses.endMin);
+  assert.ok(ups.endMin <= 17 * 60);
+});
+
 test("a 10 PM errand is rejected and put back inside business hours", () => {
   const intents = interpretLifeDump(EMILY_WEEK_DUMP, CLOCK);
   const ups = intents.find((row) => row.title === "Ship package at UPS");
