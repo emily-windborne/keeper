@@ -289,8 +289,8 @@ export function PlannerDayView({
                     {task.title_snapshot}
                   </span>
                 </span>
-                {heightPx >= 40 ? (
-                  <span className="mt-0.5 block truncate text-[11px] text-ink-muted">{when}</span>
+                {heightPx >= 28 ? (
+                  <span className="block truncate text-[10px] leading-tight text-ink-muted">{when}</span>
                 ) : null}
               </DragBlock>
             );

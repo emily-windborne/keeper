@@ -367,6 +367,7 @@ export function PlannerWeekTimelineView({
                 timelineEndMin={timelineEndMin}
                 hourPx={HOUR_PX}
                 topOffset={timelineTop}
+                labeled={false}
               />
 
               <div
