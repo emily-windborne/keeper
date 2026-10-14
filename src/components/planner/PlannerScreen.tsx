@@ -302,14 +302,6 @@ export function PlannerScreen() {
     });
   }, [selectedDayTasks]);
 
-  const tasksCountByDate = useMemo(() => {
-    const m = new Map<string, number>();
-    for (const t of tasksWithRoutines) {
-      m.set(t.scheduled_date, (m.get(t.scheduled_date) ?? 0) + 1);
-    }
-    return m;
-  }, [tasksWithRoutines]);
-
   const headerSubtitle = useMemo(() => {
     const sel = new Date(`${selectedDateISO}T12:00:00`);
     return sel.toLocaleDateString(undefined, {
@@ -321,10 +313,6 @@ export function PlannerScreen() {
   }, [selectedDateISO]);
 
   const sectionTitle = useMemo(() => {
-    if (plannerView === "month") {
-      const d = new Date(`${selectedDateISO}T12:00:00`);
-      return `Tasks · ${d.toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" })}`;
-    }
     if (plannerView === "day") {
       return selectedDateISO === todayISO ? "Today" : "Day schedule";
     }
@@ -1268,19 +1256,6 @@ export function PlannerScreen() {
               />
             </div>
           )}
-          {plannerView === "month" && (
-            <div className="flex flex-wrap items-center gap-2 text-[13px] text-ink-muted">
-              <span>
-                {monthCursor.toLocaleDateString(undefined, { month: "long", year: "numeric" })}
-              </span>
-              <PlannerCalendarPopover
-                weekDayISOs={weekDays.map((d) => toISODate(d))}
-                todayISO={todayISO}
-                selectedDateISO={selectedDateISO}
-                onSelectDate={jumpPlannerToDate}
-              />
-            </div>
-          )}
           <h1 className="font-serif text-[26px] font-normal tracking-tight text-ink">
             Planner
           </h1>
@@ -1316,6 +1291,7 @@ export function PlannerScreen() {
         <p className="text-[13px] text-ink-muted">Loading…</p>
       ) : (
         <>
+          {plannerView !== "month" && (
           <div className="flex flex-col gap-2 pb-3">
             {plannerView === "week" && (
               <div className="mx-auto flex w-full max-w-[390px] items-center justify-center gap-2 pb-1">
@@ -1375,21 +1351,33 @@ export function PlannerScreen() {
               </div>
             )}
           </div>
-
-          {plannerView === "month" && (
-            <div className="pb-2">
-              <PlannerMonthView
-                monthCursor={monthCursor}
-                selectedDateISO={selectedDateISO}
-                todayISO={todayISO}
-                tasksCountByDate={tasksCountByDate}
-                onSelectDate={(iso) => jumpPlannerToDate(iso)}
-                onPrevMonth={() => shiftMonth(-1)}
-                onNextMonth={() => shiftMonth(1)}
-              />
-            </div>
           )}
 
+          {plannerView === "month" ? (
+            <div className="flex min-h-0 flex-1 flex-col pb-2">
+              <PlannerMonthView
+                monthCursor={monthCursor}
+                todayISO={todayISO}
+                tasks={tasksWithRoutines}
+                itemById={itemById}
+                protectedWindows={protectedWindows}
+                onOpenDay={(iso) => {
+                  jumpPlannerToDate(iso);
+                  setPlannerView("day");
+                }}
+                onPrevMonth={() => shiftMonth(-1)}
+                onNextMonth={() => shiftMonth(1)}
+                headerExtra={
+                  <PlannerCalendarPopover
+                    weekDayISOs={weekDays.map((d) => toISODate(d))}
+                    todayISO={todayISO}
+                    selectedDateISO={selectedDateISO}
+                    onSelectDate={jumpPlannerToDate}
+                  />
+                }
+              />
+            </div>
+          ) : (
           <section className="flex flex-1 flex-col">
             <h2 className="font-serif text-[20px] font-normal tracking-tight text-ink">
               {sectionTitle}
@@ -1447,6 +1435,7 @@ export function PlannerScreen() {
               )}
             </div>
           </section>
+          )}
         </>
       )}
 

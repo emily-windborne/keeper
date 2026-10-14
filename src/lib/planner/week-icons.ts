@@ -4,38 +4,91 @@ export type WeekSpan = {
   title: string;
 };
 
-export type WeekIconPlacement<T> = T & { lane: 0 | 1; extra: number };
+export type WeekLane = 0 | 1 | 2;
+
+export type WeekIconPlacement<T> = T & {
+  lane: WeekLane;
+  /** How many columns this overlap shares. */
+  lanes: 1 | 2 | 3;
+  extra: number;
+};
 
 /**
- * Up to two icons share a time. Anything else in that cluster is a +N on the first icon.
+ * Overlapping icons share the column, up to three across.
+ * A tighter crowd keeps the first two and counts the rest.
  */
 export function layoutWeekIcons<T extends WeekSpan>(entries: T[]): WeekIconPlacement<T>[] {
   const sorted = [...entries].sort(
     (a, b) => a.rangeStart - b.rangeStart || a.title.localeCompare(b.title),
   );
-  const shown: WeekIconPlacement<T>[] = [];
-  const clusterEnd: number[] = [];
+  const placed: WeekIconPlacement<T>[] = [];
+  let group: T[] = [];
+  let groupEnd = -1;
+
+  const flush = () => {
+    if (group.length === 0) return;
+    placed.push(...placeCluster(group));
+    group = [];
+    groupEnd = -1;
+  };
+
   for (const entry of sorted) {
-    const group = shown
-      .map((row, index) => ({ row, index }))
-      .filter(
-        ({ row, index }) => row.rangeStart < entry.rangeEnd && entry.rangeStart < clusterEnd[index],
-      );
-    if (group.length === 0) {
-      shown.push({ ...entry, lane: 0, extra: 0 });
-      clusterEnd.push(entry.rangeEnd);
+    if (group.length > 0 && entry.rangeStart < groupEnd) {
+      group.push(entry);
+      groupEnd = Math.max(groupEnd, entry.rangeEnd);
       continue;
     }
-    const nextEnd = Math.max(entry.rangeEnd, ...group.map(({ index }) => clusterEnd[index]));
-    for (const { index } of group) clusterEnd[index] = nextEnd;
-    const lanes = new Set(group.map(({ row }) => row.lane));
-    if (!lanes.has(1)) {
-      shown.push({ ...entry, lane: 1, extra: 0 });
-      clusterEnd.push(nextEnd);
-      continue;
-    }
-    const host = group.find(({ row }) => row.lane === 0) ?? group[0];
-    host.row.extra += 1;
+    flush();
+    group = [entry];
+    groupEnd = entry.rangeEnd;
   }
-  return shown;
+  flush();
+  return placed;
+}
+
+function maxConcurrency(group: WeekSpan[]): number {
+  const points: { t: number; delta: number }[] = [];
+  for (const item of group) {
+    points.push({ t: item.rangeStart, delta: 1 });
+    points.push({ t: item.rangeEnd, delta: -1 });
+  }
+  points.sort((a, b) => a.t - b.t || a.delta - b.delta);
+  let count = 0;
+  let max = 0;
+  for (const point of points) {
+    count += point.delta;
+    if (count > max) max = count;
+  }
+  return max;
+}
+
+function placeCluster<T extends WeekSpan>(group: T[]): WeekIconPlacement<T>[] {
+  const crowd = maxConcurrency(group) > 3;
+  const visible = crowd ? group.slice(0, 2) : group;
+  const extra = crowd ? group.length - visible.length : 0;
+  const laneEnds: number[] = [];
+  const placed: WeekIconPlacement<T>[] = [];
+
+  for (const entry of visible) {
+    let lane = laneEnds.findIndex((end) => end <= entry.rangeStart);
+    if (lane === -1) {
+      lane = laneEnds.length;
+      laneEnds.push(entry.rangeEnd);
+    } else {
+      laneEnds[lane] = entry.rangeEnd;
+    }
+    placed.push({
+      ...entry,
+      lane: lane as WeekLane,
+      lanes: 1,
+      extra: 0,
+    });
+  }
+
+  const lanes = Math.max(1, Math.min(3, laneEnds.length)) as 1 | 2 | 3;
+  return placed.map((row, index) => ({
+    ...row,
+    lanes,
+    extra: index === 0 ? extra : 0,
+  }));
 }
