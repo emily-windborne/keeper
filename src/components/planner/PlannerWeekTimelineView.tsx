@@ -8,6 +8,7 @@ import { ProtectedBands } from "@/components/planner/ProtectedBands";
 import type { ProtectedWindow } from "@/lib/planner/protected-time";
 import { parseTimeToMinutesSinceMidnight, toISODate } from "@/components/planner/planner-view-utils";
 import { formatClockRange } from "@/lib/planner/clock-label";
+import { isRoutineMarkerId, routineMinutes } from "@/lib/planner/routine-markers";
 import { minutesFromPointerY, minutesToHHMM } from "@/lib/planner/time-snap";
 
 const VIEW_BG = "#F7F2EC";
@@ -305,12 +306,12 @@ export function PlannerWeekTimelineView({
             const endRaw = task.scheduled_time_end
               ? parseTimeToMinutesSinceMidnight(task.scheduled_time_end)
               : null;
+            const setRoutine = routineMinutes(item);
             const durMin =
-              item.type === "anchor"
-                ? 15
-                : endRaw != null && endRaw > startRaw
-                  ? endRaw - startRaw
-                  : Math.max(15, item.estimated_minutes);
+              setRoutine ??
+              (endRaw != null && endRaw > startRaw
+                ? endRaw - startRaw
+                : Math.max(15, item.estimated_minutes || 15));
             const rangeEnd = startRaw + durMin;
             const startMin = clamp(startRaw, timelineStartMin, timelineEndMin - 1);
             const endForLane = clamp(rangeEnd, startMin + 1, timelineEndMin);
@@ -451,8 +452,10 @@ export function PlannerWeekTimelineView({
                 const completed = isCompletedLook(task);
                 const pastRecede =
                   !completed && isTimedTaskPastToday(iso, todayISO, task, item, nowMs);
-                const editable = !completed;
-                const when = whenLabel(task);
+                const editable = !completed && !isRoutineMarkerId(task.id);
+                const when = routine
+                  ? formatClockRange(minutesToHHMM(startMin), minutesToHHMM(startMin + durationMin))
+                  : whenLabel(task);
 
                 return (
                   <Fragment key={task.id}>
@@ -470,10 +473,10 @@ export function PlannerWeekTimelineView({
                         top: topPx,
                         height: heightPx,
                         borderRadius: 4,
-                        backgroundColor: routine ? MUSTARD_SOFT : CREAM,
-                        border: `1px solid ${SPINE}`,
-                        borderLeft: `3px solid ${MUSTARD}`,
-                        color: NAVY,
+                        backgroundColor: routine ? "#f3efe4" : CREAM,
+                        border: routine ? `1px dashed ${SPINE}` : `1px solid ${SPINE}`,
+                        borderLeft: routine ? `1px dashed ${SPINE}` : `3px solid ${MUSTARD}`,
+                        color: routine ? TEXT_MUTED : NAVY,
                         opacity: completed || pastRecede ? 0.45 : 1,
                       }}
                       onOpen={() => onOpenTask(task.id)}

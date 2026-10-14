@@ -232,7 +232,7 @@ function intervalFromPlannedTask(
   const start = parseHHMM(t.scheduled_time_start);
   if (start == null) return null;
   const parsedEnd = parseHHMM(t.scheduled_time_end);
-  const est = Math.max(1, itemById.get(t.item_id)?.estimated_minutes ?? 60);
+  const est = Math.max(1, itemById.get(t.item_id)?.estimated_minutes ?? 30);
   const end = parsedEnd ?? start + est;
   return { start, end: Math.max(end, start + 1) };
 }
@@ -242,7 +242,7 @@ function estimatedMinutesForPlannedTask(t: PlannedTask, itemById: Map<string, It
   const s = parseHHMM(t.scheduled_time_start);
   const e = parseHHMM(t.scheduled_time_end);
   if (s != null && e != null) return Math.max(1, e - s);
-  return Math.max(1, itemById.get(t.item_id)?.estimated_minutes ?? 60);
+  return Math.max(1, itemById.get(t.item_id)?.estimated_minutes ?? 30);
 }
 
 /**

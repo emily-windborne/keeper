@@ -13,6 +13,7 @@ import { PlannerTaskList } from "@/components/planner/PlannerTaskList";
 import { PlannerWeekTimelineView } from "@/components/planner/PlannerWeekTimelineView";
 import { startOfMonth, toISODate } from "@/components/planner/planner-view-utils";
 import { DEFAULT_WAKE_MIN, DEFAULT_WIND_MIN } from "@/lib/planner/life-dump";
+import { isRoutineMarkerId, routineMarkers } from "@/lib/planner/routine-markers";
 import { buildPlanMyWeekInputs } from "@/lib/planner/plan-my-week";
 import {
   itemToInsertRow,
@@ -268,9 +269,27 @@ export function PlannerScreen() {
     return () => window.clearTimeout(t);
   }, [toast]);
 
+  const routineDates = useMemo(() => {
+    const dates = new Set<string>();
+    for (const day of weekDays) dates.add(toISODate(day));
+    dates.add(selectedDateISO);
+    const start = startOfMonth(monthCursor);
+    for (let i = 0; i < 42; i += 1) {
+      const day = new Date(start);
+      day.setDate(start.getDate() + i);
+      dates.add(toISODate(day));
+    }
+    return [...dates];
+  }, [weekDays, selectedDateISO, monthCursor]);
+
+  const tasksWithRoutines = useMemo(
+    () => [...plannedTasks, ...routineMarkers(items, routineDates, plannedTasks)],
+    [plannedTasks, items, routineDates],
+  );
+
   const selectedDayTasks = useMemo(
-    () => plannedTasks.filter((t) => t.scheduled_date === selectedDateISO),
-    [plannedTasks, selectedDateISO],
+    () => tasksWithRoutines.filter((t) => t.scheduled_date === selectedDateISO),
+    [tasksWithRoutines, selectedDateISO],
   );
 
   const selectedDayTasksSortedForList = useMemo(() => {
@@ -285,11 +304,11 @@ export function PlannerScreen() {
 
   const tasksCountByDate = useMemo(() => {
     const m = new Map<string, number>();
-    for (const t of plannedTasks) {
+    for (const t of tasksWithRoutines) {
       m.set(t.scheduled_date, (m.get(t.scheduled_date) ?? 0) + 1);
     }
     return m;
-  }, [plannedTasks]);
+  }, [tasksWithRoutines]);
 
   const headerSubtitle = useMemo(() => {
     const sel = new Date(`${selectedDateISO}T12:00:00`);
@@ -662,6 +681,8 @@ export function PlannerScreen() {
 
       for (const row of selected) {
         if (row.kind !== "remove" || !row.removeId) continue;
+        const target = plannedTasks.find((task) => task.id === row.removeId);
+        if (target && itemById.get(target.item_id)?.type === "anchor") continue;
         const { error } = await supabase.from("planned_tasks").delete().eq("id", row.removeId);
         if (error) throw new Error(error.message);
         nextTasks = nextTasks.filter((task) => task.id !== row.removeId);
@@ -830,6 +851,11 @@ export function PlannerScreen() {
   }
 
   function openTaskActions(taskId: string) {
+    if (isRoutineMarkerId(taskId)) {
+      const itemId = taskId.slice("routine:".length, taskId.lastIndexOf(":"));
+      router.push(`/inventory/${itemId}/edit`);
+      return;
+    }
     setEditingPlannedTaskId(taskId);
     setPlannerEditSessionKey((k) => k + 1);
     setPlannerTaskEditOpen(true);
@@ -1392,7 +1418,7 @@ export function PlannerScreen() {
                 <div className="flex w-full justify-center">
                   <PlannerWeekTimelineView
                     weekDays={timelineWeekDays}
-                    plannedTasks={plannedTasks}
+                    plannedTasks={tasksWithRoutines}
                     itemById={itemById}
                     selectedDateISO={selectedDateISO}
                     todayISO={todayISO}

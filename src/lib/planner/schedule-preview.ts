@@ -70,6 +70,7 @@ export function proposalsFromRefine(
     if (change.action === "remove") {
       const task = tasks.find((row) => row.id === change.planned_task_id);
       if (!task) return;
+      if (itemById.get(task.item_id)?.type === "anchor") return;
       open = open.filter((row) => row.id !== task.id);
       rows.push({
         key: `remove-${task.id}-${index}`,
@@ -86,6 +87,7 @@ export function proposalsFromRefine(
       const task = tasks.find((row) => row.id === change.planned_task_id);
       const item = task ? itemById.get(task.item_id) : undefined;
       if (!task || !item) return;
+      if (item.type === "anchor") return;
       open = open.filter((row) => row.id !== task.id);
       const slot = suggestSlot(
         item,
