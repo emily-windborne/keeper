@@ -1,6 +1,6 @@
 /** Display clocks. Stored times stay 24-hour `HH:MM`. */
 
-const CLOCK = /^(\d{1,2}):([0-5]\d)$/;
+const CLOCK = /^(\d{1,2}):([0-5]\d)(?::[0-5]\d)?$/;
 
 export function formatClock(value: string | null | undefined): string {
   if (!value) return "";
@@ -43,8 +43,9 @@ export function formatDayAndRange(
   return `${day} · ${formatClockRange(start, end)}`;
 }
 
-const RANGE_IN_TEXT = /\b([01]?\d|2[0-3]):([0-5]\d)\s*(?:to|–|-)\s*([01]?\d|2[0-3]):([0-5]\d)\b/g;
-const CLOCK_IN_TEXT = /\b([01]?\d|2[0-3]):([0-5]\d)\b/g;
+const RANGE_IN_TEXT =
+  /\b([01]?\d|2[0-3]):([0-5]\d)(?::[0-5]\d)?\s*(?:to|–|-)\s*([01]?\d|2[0-3]):([0-5]\d)(?::[0-5]\d)?\b/g;
+const CLOCK_IN_TEXT = /\b([01]?\d|2[0-3]):([0-5]\d)(?::[0-5]\d)?\b/g;
 
 /** Rewrite 24-hour clocks inside notes and previews. Leaves dates and other words alone. */
 export function formatClocksInText(text: string): string {

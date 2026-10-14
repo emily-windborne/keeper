@@ -5,7 +5,9 @@ import { formatClock, formatClockRange, formatClocksInText, formatDayAndRange } 
 test("afternoon times use 12-hour labels", () => {
   assert.equal(formatClock("17:20"), "5:20 PM");
   assert.equal(formatClock("18:05"), "6:05 PM");
+  assert.equal(formatClock("17:00:00"), "5:00 PM");
   assert.equal(formatClockRange("17:20", "18:05"), "5:20 – 6:05 PM");
+  assert.equal(formatClockRange("17:00", "17:30"), "5:00 – 5:30 PM");
 });
 
 test("a range that crosses noon keeps both meridiems", () => {
@@ -24,4 +26,5 @@ test("notes and previews do not keep 24-hour clocks", () => {
     "Already on the calendar for Sunday at 5:20 – 6:05 PM.",
   );
   assert.equal(formatClocksInText("Meet at 21:39."), "Meet at 9:39 PM.");
+  assert.equal(formatClocksInText("Wed, Oct 14, 17:00 to 17:30"), "Wed, Oct 14, 5:00 – 5:30 PM");
 });
