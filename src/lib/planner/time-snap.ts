@@ -1,5 +1,5 @@
 export const SNAP_MINUTES = 15;
-export const TIMELINE_START_MIN = 6 * 60;
+export const TIMELINE_START_MIN = 7 * 60;
 export const TIMELINE_END_MIN = 24 * 60;
 
 export function snapMinutes(value: number, snap = SNAP_MINUTES): number {

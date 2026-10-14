@@ -30,14 +30,14 @@ test("moving a block keeps its length and stays inside the day", () => {
   assert.equal(moved.endMin - moved.startMin, 60);
 
   const early = shiftBlock({
-    startMin: 6 * 60,
-    endMin: 7 * 60,
+    startMin: 7 * 60,
+    endMin: 8 * 60,
     deltaMinutes: -40,
     minStart: TIMELINE_START_MIN,
     maxEnd: TIMELINE_END_MIN,
   });
   assert.equal(early.startMin, TIMELINE_START_MIN);
-  assert.equal(early.endMin, 7 * 60);
+  assert.equal(early.endMin, 8 * 60);
 });
 
 test("resizing changes the end and will not shrink below 15 minutes", () => {
@@ -60,8 +60,8 @@ test("resizing changes the end and will not shrink below 15 minutes", () => {
 });
 
 test("a tap on the grid becomes a 15-minute time", () => {
-  const minutes = minutesFromPointerY(48, 18 * 48, TIMELINE_START_MIN, TIMELINE_END_MIN);
-  assert.equal(minutesToHHMM(minutes), "07:00");
+  const minutes = minutesFromPointerY(48, 17 * 48, TIMELINE_START_MIN, TIMELINE_END_MIN);
+  assert.equal(minutesToHHMM(minutes), "08:00");
   assert.equal(dayOffsetFromDelta(50, 48), 1);
   assert.equal(dayOffsetFromDelta(10, 0), 0);
 });

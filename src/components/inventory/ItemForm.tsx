@@ -308,7 +308,7 @@ export function ItemForm({
   return (
     <form
       id={formId}
-      className="space-y-5"
+      className="space-y-3"
       onSubmit={(e) => {
         e.preventDefault();
         void handleSave();
@@ -321,7 +321,7 @@ export function ItemForm({
           placeholder="e.g. Meal prep for Coop"
           disabled={disabled}
           autoFocus={autoFocusTitle}
-          className="w-full rounded-[10px] border border-border bg-surface-raised px-4 py-3 text-base text-ink shadow-sm outline-none placeholder:text-ink-faint focus:border-accent/40 focus:ring-2 focus:ring-accent/15 disabled:opacity-60"
+          className="w-full rounded-[10px] border border-border bg-surface-raised min-h-11 px-3 py-2 text-[15px] text-ink shadow-sm outline-none placeholder:text-ink-faint focus:border-accent/40 focus:ring-2 focus:ring-accent/15 disabled:opacity-60"
         />
       </Field>
 
@@ -330,7 +330,7 @@ export function ItemForm({
           value={category}
           onChange={(e) => setCategory(e.target.value as ItemCategory)}
           disabled={disabled}
-          className="w-full appearance-none rounded-[10px] border border-border bg-surface-raised px-4 py-3 text-base text-ink shadow-sm outline-none focus:border-accent/40 focus:ring-2 focus:ring-accent/15 disabled:opacity-60"
+          className="w-full appearance-none rounded-[10px] border border-border bg-surface-raised min-h-11 px-3 py-2 text-[15px] text-ink shadow-sm outline-none focus:border-accent/40 focus:ring-2 focus:ring-accent/15 disabled:opacity-60"
         >
           {CATEGORY_OPTIONS.map((c) => (
             <option key={c} value={c}>
@@ -370,7 +370,7 @@ export function ItemForm({
           onChange={(e) => setEstimatedDuration(e.target.value)}
           placeholder="e.g. 30 min"
           disabled={disabled}
-          className="w-full rounded-[10px] border border-border bg-surface-raised px-4 py-3 text-base text-ink shadow-sm outline-none placeholder:text-ink-faint focus:border-accent/40 focus:ring-2 focus:ring-accent/15 disabled:opacity-60"
+          className="w-full rounded-[10px] border border-border bg-surface-raised min-h-11 px-3 py-2 text-[15px] text-ink shadow-sm outline-none placeholder:text-ink-faint focus:border-accent/40 focus:ring-2 focus:ring-accent/15 disabled:opacity-60"
         />
       </Field>
 
@@ -382,7 +382,7 @@ export function ItemForm({
             disabled={disabled}
             rows={3}
             placeholder="Anything you want to remember"
-            className="w-full resize-y rounded-[10px] border border-border bg-surface-raised px-4 py-3 text-base text-ink shadow-sm outline-none placeholder:text-ink-faint focus:border-accent/40 focus:ring-2 focus:ring-accent/15 disabled:opacity-60"
+            className="w-full resize-y rounded-[10px] border border-border bg-surface-raised min-h-11 px-3 py-2 text-[15px] text-ink shadow-sm outline-none placeholder:text-ink-faint focus:border-accent/40 focus:ring-2 focus:ring-accent/15 disabled:opacity-60"
           />
         </Field>
       ) : (
@@ -454,7 +454,7 @@ export function ItemForm({
             value={fixedStart}
             disabled={disabled}
             onChange={(e) => setFixedStart(e.target.value)}
-            className="w-full rounded-[10px] border border-border bg-surface-raised px-4 py-3 text-base text-ink shadow-sm outline-none focus:border-accent/40 focus:ring-2 focus:ring-accent/15 disabled:opacity-60"
+            className="w-full rounded-[10px] border border-border bg-surface-raised min-h-11 px-3 py-2 text-[15px] text-ink shadow-sm outline-none focus:border-accent/40 focus:ring-2 focus:ring-accent/15 disabled:opacity-60"
           />
           <span className="mt-1.5 block text-xs text-ink-muted">
             Example: Wednesday 1:00 to 4:00 PM is a 180 minute duration. Keeper will not slide it.
@@ -492,7 +492,7 @@ export function ItemForm({
           onChange={(e) => setMinimumSuccessThreshold(e.target.value)}
           placeholder="e.g. at least 2x/week counts"
           disabled={disabled}
-          className="w-full rounded-[10px] border border-border bg-surface-raised px-4 py-3 text-base text-ink shadow-sm outline-none placeholder:text-ink-faint focus:border-accent/40 focus:ring-2 focus:ring-accent/15 disabled:opacity-60"
+          className="w-full rounded-[10px] border border-border bg-surface-raised min-h-11 px-3 py-2 text-[15px] text-ink shadow-sm outline-none placeholder:text-ink-faint focus:border-accent/40 focus:ring-2 focus:ring-accent/15 disabled:opacity-60"
         />
       </Field>
 
@@ -501,7 +501,7 @@ export function ItemForm({
           value={priority}
           onChange={(e) => setPriority(e.target.value as ItemPriority)}
           disabled={disabled}
-          className="w-full appearance-none rounded-[10px] border border-border bg-surface-raised px-4 py-3 text-base text-ink shadow-sm outline-none focus:border-accent/40 focus:ring-2 focus:ring-accent/15 disabled:opacity-60"
+          className="w-full appearance-none rounded-[10px] border border-border bg-surface-raised min-h-11 px-3 py-2 text-[15px] text-ink shadow-sm outline-none focus:border-accent/40 focus:ring-2 focus:ring-accent/15 disabled:opacity-60"
         >
           {PRIORITY_OPTIONS.map((p) => (
             <option key={p.value} value={p.value}>
@@ -529,7 +529,7 @@ export function ItemForm({
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <label className="block">
-      <span className="mb-2 block text-sm font-medium text-ink">{label}</span>
+      <span className="mb-1 block text-[13px] font-medium text-ink">{label}</span>
       {children}
     </label>
   );

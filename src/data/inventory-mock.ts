@@ -26,6 +26,8 @@ export type Item = {
     | "Can defer";
   minimum_success_threshold: string | null;
   notes: string | null;
+  /** Lucide name chosen in the edit sheet. Empty means the title picks the icon. */
+  icon?: string | null;
   is_archived: boolean;
   last_completed_at: string | null; // ISO date string
   next_due_date: string | null; // ISO date string

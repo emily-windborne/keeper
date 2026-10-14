@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { CloseButton } from "@/components/CloseButton";
 import type { Item } from "@/data/inventory-mock";
 import { CategoryIcon } from "@/components/CategoryIcon";
 import { toISODate } from "@/components/planner/planner-view-utils";
@@ -146,13 +147,7 @@ export function AddToWeekSheet({
                   : "Pick something from your inventory, or switch to Quick add."}
               </p>
             </div>
-            <button
-              type="button"
-              onClick={onClose}
-              className="rounded-xl px-3 py-2 text-sm font-medium text-ink-muted hover:bg-surface-muted/70 hover:text-ink"
-            >
-              Cancel
-            </button>
+            <CloseButton onClick={onClose} />
           </header>
 
           <div className="mb-4 flex rounded-[10px] border border-border bg-surface-alt p-1">

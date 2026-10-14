@@ -1075,14 +1075,20 @@ export function PlannerScreen() {
     return true;
   }
 
-  async function saveItemFromPlanner(updated: Item): Promise<boolean> {
+  async function saveItemFromPlanner(updated: Item, options?: { quiet?: boolean }): Promise<boolean> {
     const nowISO = new Date().toISOString();
     const { error } = await supabase
       .from("items")
       .update(itemToUpdateRow(updated, nowISO))
       .eq("id", updated.id);
     if (error) {
-      setToast({ id: createId(), message: error.message });
+      const missingIcon = /icon/i.test(error.message) && /schema cache|column/i.test(error.message);
+      setToast({
+        id: createId(),
+        message: missingIcon
+          ? "Icons need a database update. Run supabase/migrations/011_icons_and_seven_am.sql in the Supabase SQL editor, then try again."
+          : error.message,
+      });
       return false;
     }
     const savedItem = { ...updated, updated_at: nowISO };
@@ -1107,8 +1113,10 @@ export function PlannerScreen() {
         };
       }),
     );
-    setToast({ id: createId(), message: "Saved. Upcoming tasks use this title." });
-    router.refresh();
+    if (!options?.quiet) {
+      setToast({ id: createId(), message: "Saved. Upcoming tasks use this title." });
+      router.refresh();
+    }
     return true;
   }
 
@@ -1423,21 +1431,7 @@ export function PlannerScreen() {
                     selectedDateISO={selectedDateISO}
                     todayISO={todayISO}
                     protectedWindows={protectedWindows}
-                    onSelectDate={jumpPlannerToDate}
                     onOpenTask={openTaskActions}
-                    onCommitSchedule={(taskId, patch) => {
-                      const task = plannedTasks.find((row) => row.id === taskId);
-                      void savePlannedTaskInstance(
-                        taskId,
-                        { ...patch, notes: task?.notes ?? null },
-                        { quiet: true },
-                      );
-                    }}
-                    onCreateAt={(date, time) => {
-                      jumpPlannerToDate(date);
-                      setAddTime(time);
-                      setAddOpen(true);
-                    }}
                     onOpenDay={(date) => {
                       jumpPlannerToDate(date);
                       setPlannerView("day");
@@ -1575,6 +1569,10 @@ export function PlannerScreen() {
           onDelete={(taskId) => setTaskDeleteId(taskId)}
           onSaveInstance={(taskId, patch) => savePlannedTaskInstance(taskId, patch)}
           onSaveItem={(item) => saveItemFromPlanner(item)}
+          onSaveIcon={(icon) => {
+            if (!editingPlannedItem) return Promise.resolve(false);
+            return saveItemFromPlanner({ ...editingPlannedItem, icon }, { quiet: true });
+          }}
         />
       ) : null}
 

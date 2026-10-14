@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { CloseButton } from "@/components/CloseButton";
 import type { RefineApiAction } from "@/lib/api/refine-types";
 
 const REFINE_CHIPS_SHEET: { label: string; action: RefineApiAction }[] = [
@@ -101,13 +102,7 @@ export function AskKeeperPanel({
               <div className="mx-auto mb-3 h-1.5 w-12 rounded-full bg-ink-faint/50" aria-hidden />
               <header className="mb-4 flex items-center justify-between gap-3">
                 <h2 className="font-serif text-[20px] font-normal tracking-tight text-ink">Ask Keeper</h2>
-                <button
-                  type="button"
-                  onClick={close}
-                  className="rounded-xl px-3 py-2 text-[13px] font-medium text-ink-muted hover:bg-surface-muted/70 hover:text-ink"
-                >
-                  Cancel
-                </button>
+                <CloseButton onClick={close} />
               </header>
 
               <div className="mb-5 rounded-[14px] border border-border bg-surface-alt/70 p-4">

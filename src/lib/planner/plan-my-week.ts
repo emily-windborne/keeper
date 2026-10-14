@@ -22,8 +22,8 @@ const CADENCE_ORDER: Record<Item["cadence_pressure"], number> = {
 /** Minimum gap between the end of one task and the start of the next on the same day. */
 const MIN_GAP_MINUTES = 15;
 
-/** Default day start is 6:00. Settings can move it. */
-export const DEFAULT_DAY_START_MIN = 6 * 60;
+/** Default day start is 7:00. Settings can move it. */
+export const DEFAULT_DAY_START_MIN = 7 * 60;
 /** Tasks must finish by this minute-of-day (23:00). */
 const SCHEDULE_LAST_END_MIN = 23 * 60;
 
@@ -477,7 +477,7 @@ function tryPlaceOnDays(
  */
 export type PlanScheduleOptions = {
   now?: Date;
-  /** Minutes from midnight. Defaults to 6:00. */
+  /** Minutes from midnight. Defaults to 7:00. */
   dayStartMin?: number;
   /** Ordinary tasks stay at or after this. Fixed events can sit earlier. */
   wakeMin?: number;

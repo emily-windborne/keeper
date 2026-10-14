@@ -73,7 +73,7 @@ test("a move is given a new time instead of keeping the old clock time", () => {
   assert.equal(rows.length, 1);
   assert.equal(rows[0]?.available, true);
   assert.equal(rows[0]?.move?.scheduled_date, "2026-10-14");
-  assert.equal(rows[0]?.move?.scheduled_time_start, "06:00");
+  assert.equal(rows[0]?.move?.scheduled_time_start, "07:00");
   assert.notEqual(rows[0]?.move?.scheduled_time_start, "09:00");
 });
 
