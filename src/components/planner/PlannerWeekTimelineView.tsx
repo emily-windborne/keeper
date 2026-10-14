@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Pencil } from "lucide-react";
 import type { Item } from "@/data/inventory-mock";
 import type { PlannedTask } from "@/lib/db/map-rows";
@@ -105,12 +105,11 @@ type PopoverState = {
 
 function popoverPosition(button: HTMLButtonElement): { top: number; left: number } {
   const rect = button.getBoundingClientRect();
-  const width = 220;
-  const left = Math.max(8, Math.min(rect.left + rect.width / 2 - width / 2, window.innerWidth - width - 8));
-  const below = rect.bottom + 6;
-  const top = below + 76 > window.innerHeight ? Math.max(8, rect.top - 82) : below;
-  return { top, left };
+  const below = rect.bottom + 4;
+  const top = below + 48 > window.innerHeight ? Math.max(8, rect.top - 52) : below;
+  return { top, left: Math.max(8, rect.left) };
 }
+
 
 export function PlannerWeekTimelineView({
   weekDays,
@@ -134,6 +133,17 @@ export function PlannerWeekTimelineView({
   const weekISOs = useMemo(() => weekDays.map((d) => toISODate(d)), [weekDays]);
   const { nowMin, nowMs } = usePlannerNow();
   const [popover, setPopover] = useState<PopoverState | null>(null);
+  const popoverRef = useRef<HTMLDivElement>(null);
+
+  useLayoutEffect(() => {
+    const node = popoverRef.current;
+    if (!node) return;
+    const rect = node.getBoundingClientRect();
+    const margin = 8;
+    if (rect.right > window.innerWidth - margin) {
+      node.style.left = `${Math.max(margin, window.innerWidth - margin - rect.width)}px`;
+    }
+  }, [popover]);
 
   const weekKey = weekISOs.join(",");
   useEffect(() => {
@@ -482,26 +492,29 @@ export function PlannerWeekTimelineView({
             onClick={() => setPopover(null)}
           />
           <div
+            ref={popoverRef}
             role="dialog"
             aria-label={popover.title}
-            className="absolute flex w-[220px] items-center gap-2 rounded-[12px] border border-[#e5dad0] bg-[#f6f4f0] px-3 py-2 shadow-[0_8px_24px_rgba(15,57,76,0.12)]"
+            className="absolute flex w-max max-w-[calc(100vw-16px)] items-center rounded-[12px] border border-[#e5dad0] bg-[#f6f4f0] py-0.5 pl-2.5 shadow-[0_8px_24px_rgba(15,57,76,0.12)]"
             style={{ top: popover.top, left: popover.left }}
           >
-            <div className="min-w-0 flex-1">
-              <p className="truncate text-[14px] font-semibold text-[#0f394c]">{popover.title}</p>
-              <p className="truncate text-[12px] text-[#0f394c]/65">{popover.when}</p>
+            <div className="min-w-0">
+              <p className="max-w-[9.5rem] truncate text-[14px] font-semibold leading-tight text-[#0f394c]">
+                {popover.title}
+              </p>
+              <p className="max-w-[9.5rem] truncate text-[12px] leading-tight text-[#0f394c]/65">{popover.when}</p>
             </div>
             <button
               type="button"
               aria-label={`Edit ${popover.title}`}
-              className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-[#0f394c]"
+              className="inline-flex h-11 w-11 shrink-0 items-center justify-start pl-1 text-[#0f394c]"
               onClick={() => {
                 const taskId = popover.taskId;
                 setPopover(null);
                 onOpenTask(taskId);
               }}
             >
-              <Pencil size={18} strokeWidth={1.75} aria-hidden />
+              <Pencil size={16} strokeWidth={1.75} aria-hidden />
             </button>
           </div>
         </div>
