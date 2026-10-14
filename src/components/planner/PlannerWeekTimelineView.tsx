@@ -1,9 +1,8 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { Fragment, useEffect, useMemo, useState } from "react";
 import type { Item } from "@/data/inventory-mock";
 import type { PlannedTask } from "@/lib/db/map-rows";
-import { CategoryIcon } from "@/components/CategoryIcon";
 import { consumeBackgroundClick, DragBlock } from "@/components/planner/DragBlock";
 import { parseTimeToMinutesSinceMidnight, toISODate } from "@/components/planner/planner-view-utils";
 import { formatClockRange } from "@/lib/planner/clock-label";
@@ -429,18 +428,11 @@ export function PlannerWeekTimelineView({
                 />
               )}
 
-              {shown.map(({ task, item, startMin, endMin, extra }, index) => {
+              {shown.map(({ task, item, startMin, endMin, extra }) => {
                 const topRatio = (startMin - timelineStartMin) / totalTimelineMin;
                 const topPx = timelineTop + topRatio * TIMELINE_HEIGHT;
                 const durationMin = Math.max(15, endMin - startMin);
-                let heightPx = Math.max(22, (durationMin / 60) * HOUR_PX);
-                const nextShown = shown[index + 1];
-                if (nextShown && nextShown.startMin > startMin) {
-                  const nextTop =
-                    timelineTop +
-                    ((nextShown.startMin - timelineStartMin) / totalTimelineMin) * TIMELINE_HEIGHT;
-                  heightPx = Math.min(heightPx, Math.max(18, nextTop - topPx - 2));
-                }
+                let heightPx = Math.max(18, (durationMin / 60) * HOUR_PX);
                 heightPx = Math.min(heightPx, timelineBottom - topPx);
                 const routine = item.type === "anchor";
                 const completed = isCompletedLook(task);
@@ -450,58 +442,63 @@ export function PlannerWeekTimelineView({
                 const when = whenLabel(task);
 
                 return (
-                  <DragBlock
-                    key={task.id}
-                    enabled={editable}
-                    canResize={false}
-                    startMin={startMin}
-                    endMin={startMin + durationMin}
-                    hourPx={HOUR_PX}
-                    dateISO={iso}
-                    weekDates={weekISOs}
-                    ariaLabel={`${routine ? "Routine, " : ""}${task.title_snapshot}, ${when}. Tap to open.`}
-                    className="absolute left-0.5 right-0.5 z-[5] overflow-hidden px-0.5 text-left"
-                    style={{
-                      top: topPx,
-                      height: heightPx,
-                      borderRadius: 4,
-                      backgroundColor: routine ? MUSTARD_SOFT : CREAM,
-                      border: `1px solid ${SPINE}`,
-                      borderLeft: `3px solid ${MUSTARD}`,
-                      color: NAVY,
-                      opacity: completed || pastRecede ? 0.45 : 1,
-                    }}
-                    onOpen={() => onOpenTask(task.id)}
-                    onCommit={(next) =>
-                      onCommitSchedule(task.id, {
-                        scheduled_date: next.dateISO,
-                        scheduled_time_start: minutesToHHMM(next.startMin),
-                        scheduled_time_end: minutesToHHMM(next.endMin),
-                      })
-                    }
-                  >
-                    <span className="flex h-full min-w-0 items-center gap-0.5">
-                      <CategoryIcon category={item.category} variant="bare" size={14} iconColor={NAVY} />
-                      <span className="min-w-0 flex-1 truncate text-[12px] font-semibold leading-tight">
+                  <Fragment key={task.id}>
+                    <DragBlock
+                      enabled={editable}
+                      canResize={editable && !routine && heightPx >= 40}
+                      startMin={startMin}
+                      endMin={startMin + durationMin}
+                      hourPx={HOUR_PX}
+                      dateISO={iso}
+                      weekDates={weekISOs}
+                      ariaLabel={`${routine ? "Routine, " : ""}${task.title_snapshot}, ${when}. Drag to move${routine ? " it" : ", or drag the gold bar to change the length"}.`}
+                      className="absolute left-0.5 right-0.5 z-[5] overflow-hidden px-0.5 text-left"
+                      style={{
+                        top: topPx,
+                        height: heightPx,
+                        borderRadius: 4,
+                        backgroundColor: routine ? MUSTARD_SOFT : CREAM,
+                        border: `1px solid ${SPINE}`,
+                        borderLeft: `3px solid ${MUSTARD}`,
+                        color: NAVY,
+                        opacity: completed || pastRecede ? 0.45 : 1,
+                      }}
+                      onOpen={() => onOpenTask(task.id)}
+                      onCommit={(next) =>
+                        onCommitSchedule(task.id, {
+                          scheduled_date: next.dateISO,
+                          scheduled_time_start: minutesToHHMM(next.startMin),
+                          scheduled_time_end: minutesToHHMM(next.endMin),
+                        })
+                      }
+                    >
+                      <span className="block truncate text-[12px] font-semibold leading-tight">
                         {task.title_snapshot}
                       </span>
-                      {extra > 0 ? (
-                        <button
-                          type="button"
-                          className="shrink-0 px-0.5 text-[11px] font-semibold leading-none"
-                          style={{ color: NAVY }}
-                          onPointerDown={(event) => event.stopPropagation()}
-                          onClick={(event) => {
-                            event.stopPropagation();
-                            onOpenDay(iso);
-                          }}
-                          aria-label={`${extra} more at this time`}
+                      {heightPx >= 34 ? (
+                        <span
+                          className="mt-0.5 block truncate text-[10px] font-medium leading-tight"
+                          style={{ color: TEXT_MUTED }}
                         >
-                          +{extra}
-                        </button>
+                          {when}
+                        </span>
                       ) : null}
-                    </span>
-                  </DragBlock>
+                    </DragBlock>
+                    {extra > 0 ? (
+                      <button
+                        type="button"
+                        className="absolute left-0.5 right-0.5 z-30 flex min-h-11 items-center justify-center rounded-[4px] text-[11px] font-semibold"
+                        style={{ top: topPx + heightPx, backgroundColor: MUSTARD, color: NAVY }}
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          onOpenDay(iso);
+                        }}
+                        aria-label={`${extra} more at this time`}
+                      >
+                        +{extra}
+                      </button>
+                    ) : null}
+                  </Fragment>
                 );
               })}
             </div>
