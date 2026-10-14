@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { CloseButton } from "@/components/CloseButton";
 import type {
   Item,
   ItemCategory,
@@ -193,13 +194,7 @@ export function BrainDumpPreviewSheet({
                 Edit anything below, then confirm to add to Inventory.
               </p>
             </div>
-            <button
-              type="button"
-              onClick={onClose}
-              className="shrink-0 rounded-xl px-3 py-2 text-[13px] font-medium text-ink-muted hover:bg-surface-muted/70 hover:text-ink"
-            >
-              Cancel
-            </button>
+            <CloseButton onClick={onClose} />
           </header>
 
           <div className="min-h-0 flex-1 overflow-y-auto pr-1">

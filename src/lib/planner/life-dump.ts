@@ -10,7 +10,7 @@ import {
 
 export const BUSINESS_START_MIN = 9 * 60;
 export const BUSINESS_END_MIN = 17 * 60;
-export const DEFAULT_WAKE_MIN = 8 * 60;
+export const DEFAULT_WAKE_MIN = 7 * 60;
 export const DEFAULT_WIND_MIN = 22 * 60;
 const TRAVEL_MIN = 30;
 const SAME_PLACE_GAP_MIN = 10;

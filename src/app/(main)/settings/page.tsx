@@ -27,11 +27,11 @@ const VAPID_PUBLIC_KEY = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY?.trim() ?? "";
 export default function SettingsPage() {
   const router = useRouter();
   const supabase = useMemo(() => createClient(), []);
-  const [dayStart, setDayStart] = useState("06:00");
+  const [dayStart, setDayStart] = useState("07:00");
   const [autoNext, setAutoNext] = useState(true);
   const [morningOn, setMorningOn] = useState(true);
   const [morningTime, setMorningTime] = useState("07:30");
-  const [wakeTime, setWakeTime] = useState("08:00");
+  const [wakeTime, setWakeTime] = useState("07:00");
   const [windTime, setWindTime] = useState("22:00");
   const [pushOn, setPushOn] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
@@ -184,7 +184,7 @@ export default function SettingsPage() {
         </p>
       </header>
       <label className="mb-6 block max-w-sm">
-        <span className="mb-2 block text-sm font-medium text-ink">Day starts at {formatClock(dayStart)}</span>
+        <span className="mb-1 block text-sm font-medium text-ink">Day starts</span>
         <input
           type="time"
           value={dayStart}
@@ -192,7 +192,7 @@ export default function SettingsPage() {
           className="min-h-11 w-full rounded-[10px] border border-border bg-surface-raised px-4 py-3 text-base text-ink shadow-sm outline-none focus:border-accent/40 focus:ring-2 focus:ring-accent/15"
         />
         <span className="mt-1.5 block text-xs text-ink-muted">
-          The planner will not place ordinary tasks before this time. The starting point is 6:00 AM.
+          Ordinary tasks stay after this. The starting point is 7:00 AM.
         </span>
       </label>
       <label className="mb-8 flex min-h-11 max-w-sm items-start gap-3 text-sm text-ink">
@@ -218,7 +218,7 @@ export default function SettingsPage() {
           Ordinary tasks stay between these times. Something you set to an exact time can sit outside them. The starting point is {formatClock(minutesToClock(DEFAULT_WAKE_MIN))} to {formatClock(minutesToClock(DEFAULT_WIND_MIN))}.
         </p>
         <label className="mt-4 block">
-          <span className="mb-2 block text-sm font-medium text-ink">Wake time {formatClock(wakeTime)}</span>
+          <span className="mb-1 block text-sm font-medium text-ink">Wake time</span>
           <input
             type="time"
             value={wakeTime}
@@ -227,7 +227,7 @@ export default function SettingsPage() {
           />
         </label>
         <label className="mt-4 block">
-          <span className="mb-2 block text-sm font-medium text-ink">Wind-down {formatClock(windTime)}</span>
+          <span className="mb-1 block text-sm font-medium text-ink">Wind-down</span>
           <input
             type="time"
             value={windTime}
@@ -283,7 +283,7 @@ export default function SettingsPage() {
           </span>
         </label>
         <label className="mt-3 block">
-          <span className="mb-2 block text-sm font-medium text-ink">Morning time {formatClock(morningTime)}</span>
+          <span className="mb-1 block text-sm font-medium text-ink">Morning note</span>
           <input
             type="time"
             value={morningTime}

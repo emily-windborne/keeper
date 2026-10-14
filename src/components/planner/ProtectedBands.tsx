@@ -10,6 +10,7 @@ export function ProtectedBands({
   timelineEndMin,
   hourPx,
   topOffset = 0,
+  labeled = true,
 }: {
   windows: ProtectedWindow[];
   dateISO: string;
@@ -17,6 +18,8 @@ export function ProtectedBands({
   timelineEndMin: number;
   hourPx: number;
   topOffset?: number;
+  /** Narrow columns keep the wash and hide the name. */
+  labeled?: boolean;
 }) {
   return windowsOnDate(windows, dateISO).map((window) => {
     const start = Math.max(window.startMin, timelineStartMin);
@@ -31,7 +34,7 @@ export function ProtectedBands({
         style={{ top, height, backgroundColor: "rgba(245, 236, 196, 0.72)" }}
         aria-hidden
       >
-        <span className="block truncate px-1 pt-0.5 text-[10px] font-medium leading-none text-[#0f394c]/55">
+        <span className={labeled ? "block truncate px-1 pt-0.5 text-[10px] font-medium leading-none text-[#0f394c]/55" : "sr-only"}>
           {window.name}
         </span>
       </div>

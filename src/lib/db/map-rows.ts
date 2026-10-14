@@ -1,5 +1,6 @@
 import type { Item } from "@/data/inventory-mock";
 import { withInitialNextDueDateIfNeeded } from "@/lib/inventory/compute-next-due";
+import { isTaskIconId } from "@/lib/planner/task-icon";
 
 export function clampTimesPerPeriod(value: number | null | undefined): number {
   const n = typeof value === "number" ? value : Number(value);
@@ -31,6 +32,7 @@ export function itemColumns(
     cadence_pressure: item.cadence_pressure,
     minimum_success_threshold: item.minimum_success_threshold,
     notes: item.notes,
+    ...(item.icon !== undefined ? { icon: isTaskIconId(item.icon) ? item.icon : null } : {}),
     is_archived: item.is_archived,
     last_completed_at: item.last_completed_at,
     next_due_date: item.next_due_date,
@@ -74,6 +76,7 @@ type ItemRow = {
   cadence_pressure: Item["cadence_pressure"];
   minimum_success_threshold: string | null;
   notes: string | null;
+  icon?: string | null;
   is_archived: boolean;
   last_completed_at: string | null;
   next_due_date: string | null;
@@ -120,6 +123,9 @@ export function mapItemRow(row: ItemRow): Item {
     cadence_pressure: row.cadence_pressure,
     minimum_success_threshold: row.minimum_success_threshold,
     notes: row.notes,
+    ...(Object.prototype.hasOwnProperty.call(row, "icon")
+      ? { icon: isTaskIconId(row.icon) ? row.icon : null }
+      : {}),
     is_archived: row.is_archived,
     last_completed_at: row.last_completed_at,
     next_due_date: row.next_due_date,

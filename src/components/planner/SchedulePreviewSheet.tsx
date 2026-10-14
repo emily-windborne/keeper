@@ -1,8 +1,9 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { CloseButton } from "@/components/CloseButton";
 import type { SchedulePreviewRow } from "@/lib/planner/schedule-preview";
-import { formatClockRange, formatClocksInText, formatDayAndRange } from "@/lib/planner/clock-label";
+import { formatClocksInText, formatDayAndRange } from "@/lib/planner/clock-label";
 
 type ClockEdit = { date: string; start: string; end: string };
 
@@ -74,6 +75,7 @@ export function SchedulePreviewSheet({
 }) {
   const [checked, setChecked] = useState<Record<string, boolean>>({});
   const [edits, setEdits] = useState<Record<string, ClockEdit>>({});
+  const [openKey, setOpenKey] = useState<string | null>(null);
 
   useEffect(() => {
     if (!open) return;
@@ -86,6 +88,7 @@ export function SchedulePreviewSheet({
     }
     setChecked(nextChecked);
     setEdits(nextEdits);
+    setOpenKey(null);
   }, [open, rows]);
 
   if (!open) return null;
@@ -121,68 +124,63 @@ export function SchedulePreviewSheet({
           <div className="mx-auto mb-3 h-1.5 w-12 rounded-full bg-ink-faint/50" aria-hidden />
           <header className="mb-3 flex items-center justify-between gap-3">
             <h2 className="font-serif text-[20px] font-normal tracking-tight text-ink">{title}</h2>
-            <button
-              type="button"
-              onClick={onClose}
-              className="min-h-11 rounded-xl px-3 py-2 text-[13px] font-medium text-ink-muted hover:bg-surface-muted/70 hover:text-ink"
-            >
-              Cancel
-            </button>
+            <CloseButton onClick={onClose} />
           </header>
           {note ? <p className="mb-3 text-[13px] leading-relaxed text-ink-muted">{note}</p> : null}
         </div>
-        <ul className="min-h-0 flex-1 overflow-y-auto px-5 sm:px-8">
+        <ul className="min-h-0 flex-1 overflow-y-auto px-4 sm:px-8">
           {rows.map((row) => {
             const edit = edits[row.key];
+            const picking = openKey === row.key && edit != null;
             return (
-              <li key={row.key} className="border-t border-border py-3">
-                <label className={`flex min-h-11 items-start gap-3 ${row.available ? "" : "opacity-60"}`}>
+              <li key={row.key} className="border-t border-border py-1.5">
+                <div className={`flex min-h-11 items-center gap-2 ${row.available ? "" : "opacity-60"}`}>
                   <input
                     type="checkbox"
-                    className="mt-1 h-5 w-5"
+                    className="h-5 w-5 shrink-0"
                     checked={Boolean(checked[row.key])}
                     disabled={!row.available || saving}
+                    aria-label={row.title}
                     onChange={(e) => setChecked((prev) => ({ ...prev, [row.key]: e.target.checked }))}
                   />
-                  <span className="min-w-0 flex-1">
-                    <span className="block text-[14px] font-medium text-ink">{row.title}</span>
-                    {edit ? (
-                      <span className="mt-1 block text-[15px] font-semibold text-ink">
-                        {formatDayAndRange(edit.date, edit.start, edit.end)}
-                      </span>
-                    ) : (
-                      <span className="mt-0.5 block text-[12px] leading-relaxed text-ink-muted">
-                        {formatClocksInText(row.detail)}
-                      </span>
-                    )}
-                  </span>
-                </label>
-                {edit ? (
-                  <div className="mt-2 grid grid-cols-1 gap-3 pl-8 sm:grid-cols-2">
-                    <label className="block">
-                      <span className="mb-1 block text-[12px] font-medium text-ink-muted">Date</span>
-                      <input
-                        type="date"
-                        value={edit.date}
-                        disabled={saving}
-                        onChange={(event) => patch(row.key, { date: event.target.value })}
-                        className="min-h-11 w-full rounded-[10px] border border-border bg-surface-raised px-3 py-2 text-[15px] text-ink"
-                      />
-                    </label>
-                    <label className="block">
-                      <span className="mb-1 block text-[12px] font-medium text-ink-muted">
-                        Time · {formatClockRange(edit.start, edit.end)}
-                      </span>
-                      <input
-                        type="time"
-                        value={edit.start}
-                        disabled={saving}
-                        onChange={(event) => {
-                          if (event.target.value) patch(row.key, { start: event.target.value });
-                        }}
-                        className="min-h-11 w-full rounded-[10px] border border-border bg-surface-raised px-3 py-2 text-[15px] text-ink"
-                      />
-                    </label>
+                  <span className="min-w-0 flex-1 truncate text-[14px] font-medium text-ink">{row.title}</span>
+                  {edit ? (
+                    <button
+                      type="button"
+                      disabled={!row.available || saving}
+                      aria-expanded={picking}
+                      aria-label={`Change time for ${row.title}`}
+                      onClick={() => setOpenKey(picking ? null : row.key)}
+                      className="inline-flex h-11 shrink-0 items-center whitespace-nowrap rounded-full bg-[#f5ecc4] px-2.5 text-[12px] font-medium text-[#0f394c] disabled:opacity-60"
+                    >
+                      {formatDayAndRange(edit.date, edit.start, edit.end)}
+                    </button>
+                  ) : (
+                    <span className="max-w-[13.5rem] truncate text-[12px] text-ink-muted">
+                      {formatClocksInText(row.detail)}
+                    </span>
+                  )}
+                </div>
+                {picking && edit ? (
+                  <div className="mb-1 flex items-center justify-end gap-1.5 pl-7">
+                    <input
+                      type="date"
+                      aria-label={`Date for ${row.title}`}
+                      value={edit.date}
+                      disabled={saving}
+                      onChange={(event) => patch(row.key, { date: event.target.value })}
+                      className="h-9 w-[8.75rem] rounded-lg border border-border bg-surface-raised px-1.5 text-[13px] text-ink"
+                    />
+                    <input
+                      type="time"
+                      aria-label={`Time for ${row.title}`}
+                      value={edit.start}
+                      disabled={saving}
+                      onChange={(event) => {
+                        if (event.target.value) patch(row.key, { start: event.target.value });
+                      }}
+                      className="h-9 w-[6.25rem] rounded-lg border border-border bg-surface-raised px-1.5 text-[13px] text-ink"
+                    />
                   </div>
                 ) : null}
               </li>

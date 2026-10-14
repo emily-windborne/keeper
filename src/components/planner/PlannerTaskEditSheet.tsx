@@ -1,11 +1,13 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { Trash2 } from "lucide-react";
 import type { Item } from "@/data/inventory-mock";
-import { CategoryIcon } from "@/components/CategoryIcon";
+import { CloseButton } from "@/components/CloseButton";
 import { ItemForm } from "@/components/inventory/ItemForm";
+import { TaskIconPicker } from "@/components/planner/TaskIcon";
 import type { PlannedTask } from "@/lib/db/map-rows";
-import { formatClockRange, formatClocksInText } from "@/lib/planner/clock-label";
+import { formatClocksInText } from "@/lib/planner/clock-label";
 
 type EditTab = "instance" | "all";
 
@@ -51,6 +53,7 @@ export type PlannerTaskEditSheetProps = {
     },
   ) => Promise<boolean>;
   onSaveItem: (item: Item) => Promise<boolean>;
+  onSaveIcon?: (icon: string | null) => Promise<boolean>;
   onMarkDone?: (taskId: string) => void;
   onSkip?: (taskId: string) => void;
   onDelete?: (taskId: string) => void;
@@ -64,6 +67,7 @@ export function PlannerTaskEditSheet({
   onClose,
   onSaveInstance,
   onSaveItem,
+  onSaveIcon,
   onMarkDone,
   onSkip,
   onDelete,
@@ -76,6 +80,8 @@ export function PlannerTaskEditSheet({
   const [eventNotes, setEventNotes] = useState("");
   const [savingInstance, setSavingInstance] = useState(false);
   const [savingItem, setSavingItem] = useState(false);
+  const [iconChoice, setIconChoice] = useState<string | null>(null);
+  const [savingIcon, setSavingIcon] = useState(false);
 
   useEffect(() => {
     if (!open || !task || !item) return;
@@ -84,6 +90,7 @@ export function PlannerTaskEditSheet({
     setEventTimeStart(task.scheduled_time_start ?? "");
     setEventDuration(String(durationMinutesForTask(task, item)));
     setEventNotes(task.notes ? formatClocksInText(task.notes) : "");
+    setIconChoice(item.icon ?? null);
     // Re-init only when a new edit session starts (avoids resetting if `item` reference churns).
     // eslint-disable-next-line react-hooks/exhaustive-deps -- task/item read when open + sessionKey change
   }, [open, sessionKey]);
@@ -137,6 +144,19 @@ export function PlannerTaskEditSheet({
     }
   }
 
+  async function chooseIcon(next: string | null) {
+    const prev = iconChoice;
+    setIconChoice(next);
+    if (!onSaveIcon) return;
+    setSavingIcon(true);
+    try {
+      const ok = await onSaveIcon(next);
+      if (!ok) setIconChoice(prev);
+    } finally {
+      setSavingIcon(false);
+    }
+  }
+
   if (!open || !task || !item) return null;
 
   return (
@@ -154,32 +174,30 @@ export function PlannerTaskEditSheet({
         aria-label="Edit planned task"
         className="absolute bottom-0 left-0 right-0 mx-auto flex max-h-[min(92vh,calc(100dvh-1rem))] w-full max-w-shell flex-col rounded-t-[20px] border border-border bg-surface-raised shadow-[0_-12px_40px_rgba(15,57,76,0.12)] sm:max-w-xl md:max-w-2xl lg:max-w-3xl"
       >
-        <div className="flex min-h-0 flex-1 flex-col px-5 pt-4 sm:px-8 md:px-10">
-          <div className="mx-auto mb-4 h-1.5 w-12 shrink-0 rounded-full bg-ink-faint/50" aria-hidden />
+        <div className="flex min-h-0 flex-1 flex-col px-4 pt-3 sm:px-8 md:px-10">
+          <div className="mx-auto mb-2 h-1 w-10 shrink-0 rounded-full bg-ink-faint/50" aria-hidden />
 
-          <header className="mb-4 flex shrink-0 items-start justify-between gap-4">
+          <header className="mb-3 flex shrink-0 items-start justify-between gap-2">
             <div className="min-w-0">
-              <div className="flex items-center gap-3">
-                <CategoryIcon category={item.category} />
-                <div className="min-w-0">
-                  <h2 className="font-serif text-[20px] font-normal tracking-tight text-ink">Edit</h2>
-                  <div className="mt-1 text-[13px] font-semibold text-ink">{task.title_snapshot}</div>
-                  <div className="mt-0.5 text-[12px] text-ink-muted">
-                    {item.category} · {item.estimated_minutes} min default
-                  </div>
-                </div>
-              </div>
+              <h2 className="font-serif text-[22px] font-normal leading-tight tracking-tight text-ink">
+                {task.title_snapshot}
+              </h2>
+              <p className="mt-0.5 text-[12px] text-ink-muted">{item.category}</p>
             </div>
-            <button
-              type="button"
-              onClick={onClose}
-              className="shrink-0 rounded-xl px-3 py-2 text-sm font-medium text-ink-muted hover:bg-surface-muted/70 hover:text-ink"
-            >
-              Close
-            </button>
+            <CloseButton onClick={onClose} />
           </header>
 
-          <div className="mb-4 flex shrink-0 rounded-[10px] border border-border bg-surface-alt p-1">
+          <div className="mb-3">
+            <TaskIconPicker
+              title={task.title_snapshot}
+              category={item.category}
+              value={iconChoice}
+              disabled={savingIcon || savingInstance || savingItem}
+              onChange={(next) => void chooseIcon(next)}
+            />
+          </div>
+
+          <div className="mb-3 flex shrink-0 rounded-[10px] border border-border bg-surface-alt p-1">
             <button
               type="button"
               onClick={() => setTab("instance")}
@@ -205,58 +223,50 @@ export function PlannerTaskEditSheet({
           </div>
 
           <div className="min-h-0 flex-1 overflow-y-auto pr-1">
-            <div className={tab === "instance" ? "block space-y-4 pb-4" : "hidden"}>
-              <label className="block">
-                <span className="mb-2 block text-[13px] font-medium text-ink-muted">Date</span>
-                <input
-                  type="date"
-                  value={eventDate}
-                  onChange={(e) => setEventDate(e.target.value)}
-                  className="w-full rounded-[10px] border border-border bg-surface-raised px-4 py-3 text-base text-ink shadow-sm outline-none focus:border-accent/40 focus:ring-2 focus:ring-accent/15"
-                />
-              </label>
-
-              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                <label className="block">
-                  <span className="mb-2 block text-[13px] font-medium text-ink-muted">
-                    Time (optional)
-                    {eventTimeStart
-                      ? ` · ${formatClockRange(eventTimeStart, scheduledTimeEnd)}`
-                      : ""}
-                  </span>
+            <div className={tab === "instance" ? "block space-y-3 pb-3" : "hidden"}>
+              <div className="grid grid-cols-[minmax(0,1.35fr)_minmax(0,1fr)_3.5rem] gap-2">
+                <label className="block min-w-0">
+                  <span className="mb-1 block text-[12px] font-medium text-ink-muted">Date</span>
+                  <input
+                    type="date"
+                    value={eventDate}
+                    onChange={(e) => setEventDate(e.target.value)}
+                    className="min-h-11 w-full rounded-[10px] border border-border bg-surface-raised px-2 py-2 text-[14px] text-ink outline-none focus:border-accent/40 focus:ring-2 focus:ring-accent/15"
+                  />
+                </label>
+                <label className="block min-w-0">
+                  <span className="mb-1 block text-[12px] font-medium text-ink-muted">Time</span>
                   <input
                     type="time"
                     value={eventTimeStart}
                     onChange={(e) => setEventTimeStart(e.target.value)}
-                    className="w-full rounded-[10px] border border-border bg-surface-raised px-4 py-3 text-base text-ink shadow-sm outline-none focus:border-accent/40 focus:ring-2 focus:ring-accent/15"
+                    aria-label="Time, optional"
+                    className="min-h-11 w-full rounded-[10px] border border-border bg-surface-raised px-2 py-2 text-[14px] text-ink outline-none focus:border-accent/40 focus:ring-2 focus:ring-accent/15"
                   />
                 </label>
-
-                <label className="block">
-                  <span className="mb-2 block text-[13px] font-medium text-ink-muted">
-                    Duration (minutes)
-                  </span>
+                <label className="block min-w-0">
+                  <span className="mb-1 block text-[12px] font-medium text-ink-muted">Min</span>
                   <input
                     inputMode="numeric"
                     value={eventDuration}
                     onChange={(e) => setEventDuration(e.target.value)}
-                    placeholder={`e.g. ${item.estimated_minutes}`}
-                    className="w-full rounded-[10px] border border-border bg-surface-raised px-4 py-3 text-base text-ink shadow-sm outline-none placeholder:text-ink-faint focus:border-accent/40 focus:ring-2 focus:ring-accent/15"
+                    aria-label="Duration in minutes"
+                    className="min-h-11 w-full rounded-[10px] border border-border bg-surface-raised px-2 py-2 text-[14px] text-ink outline-none focus:border-accent/40 focus:ring-2 focus:ring-accent/15"
                   />
                 </label>
               </div>
 
               <label className="block">
-                <span className="mb-2 block text-[13px] font-medium text-ink-muted">Notes</span>
+                <span className="mb-1 block text-[12px] font-medium text-ink-muted">Notes</span>
                 <textarea
                   value={eventNotes}
                   onChange={(e) => setEventNotes(e.target.value)}
-                  rows={3}
-                  placeholder="Notes for this planned instance…"
-                  className="w-full resize-y rounded-[10px] border border-border bg-surface-raised px-4 py-3 text-base text-ink shadow-sm outline-none placeholder:text-ink-faint focus:border-accent/40 focus:ring-2 focus:ring-accent/15"
+                  rows={2}
+                  placeholder="Notes for this time"
+                  className="w-full resize-y rounded-[10px] border border-border bg-surface-raised px-3 py-2 text-[15px] text-ink outline-none placeholder:text-ink-faint focus:border-accent/40 focus:ring-2 focus:ring-accent/15"
                 />
               </label>
-              <div className="grid grid-cols-2 gap-2">
+              <div className="grid grid-cols-[1fr_1fr_auto] gap-2">
                 <button
                   type="button"
                   onClick={() => onMarkDone?.(task.id)}
@@ -274,16 +284,17 @@ export function PlannerTaskEditSheet({
                 <button
                   type="button"
                   onClick={() => onDelete?.(task.id)}
-                  className="col-span-2 min-h-11 rounded-[10px] border border-red-800/25 bg-surface-raised px-3 py-2 text-[13px] font-semibold text-red-900/90"
+                  aria-label="Delete this task"
+                  className="inline-flex h-11 w-11 items-center justify-center rounded-[10px] border border-red-800/25 bg-surface-raised text-red-900/90"
                 >
-                  Delete this task
+                  <Trash2 size={18} strokeWidth={1.75} aria-hidden />
                 </button>
               </div>
             </div>
 
-            <div className={tab === "all" ? "block pb-4" : "hidden"}>
-              <p className="mb-4 text-[13px] leading-relaxed text-ink-muted">
-                Changes apply to the inventory item and every time you plan it, not only this day.
+            <div className={tab === "all" ? "block pb-3" : "hidden"}>
+              <p className="mb-3 text-[13px] leading-relaxed text-ink-muted">
+                This changes the item every time you plan it.
               </p>
               <ItemForm
                 key={`${sessionKey}-${item.id}`}

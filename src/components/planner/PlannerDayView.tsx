@@ -2,7 +2,7 @@
 
 import type { Item } from "@/data/inventory-mock";
 import type { PlannedTask } from "@/lib/db/map-rows";
-import { CategoryIcon } from "@/components/CategoryIcon";
+import { TaskIcon } from "@/components/planner/TaskIcon";
 import { consumeBackgroundClick, DragBlock } from "@/components/planner/DragBlock";
 import { ProtectedBands } from "@/components/planner/ProtectedBands";
 import type { ProtectedWindow } from "@/lib/planner/protected-time";
@@ -11,7 +11,7 @@ import { formatClock, formatClockRange } from "@/lib/planner/clock-label";
 import { isRoutineMarkerId, routineMinutes } from "@/lib/planner/routine-markers";
 import { minutesFromPointerY, minutesToHHMM, TIMELINE_END_MIN, TIMELINE_START_MIN } from "@/lib/planner/time-snap";
 
-const DAY_START_HOUR = 6;
+const DAY_START_HOUR = TIMELINE_START_MIN / 60;
 const DAY_END_HOUR = 23;
 const HOUR_PX = 64;
 
@@ -113,41 +113,34 @@ export function PlannerDayView({
         key={task.id}
         type="button"
         onClick={() => onOpenTask(task.id)}
-        className={`w-full rounded-[14px] border border-border bg-surface-raised p-3 text-left shadow-soft transition-opacity sm:p-4 ${
+        className={`w-full rounded-[14px] border border-border bg-surface-raised p-2.5 text-left shadow-soft transition-opacity ${
           done ? "opacity-80" : ""
         } ${skipped ? "opacity-80" : ""}`}
         aria-label={`Task actions for ${task.title_snapshot}`}
       >
-        <div className="flex items-start gap-3">
-          <CategoryIcon category={item.category} />
+        <div className="flex items-start gap-2.5">
+          <TaskIcon title={task.title_snapshot} category={item.category} override={item.icon} size={32} />
           <div className="min-w-0 flex-1">
-            <div className="flex items-center justify-between gap-3">
+            <div className="flex items-center justify-between gap-2">
               <h3 className="text-[15px] font-semibold text-ink">{task.title_snapshot}</h3>
-              <span
-                className={`shrink-0 rounded-full border px-2.5 py-0.5 text-[11px] font-medium sm:px-3 sm:py-1 sm:text-[12px] ${
-                  task.status === "done"
-                    ? "border-accent/20 bg-teal-light text-teal"
-                    : task.status === "skipped"
-                      ? "border-border bg-surface-alt text-ink-muted"
-                      : task.status === "moved"
-                        ? "border-accent/20 bg-accent-soft/60 text-accent"
-                        : "border-border bg-surface-alt text-ink-muted"
-                }`}
-              >
-                {task.status === "planned"
-                  ? "Planned"
-                  : task.status === "done"
-                    ? "Done"
-                    : task.status === "skipped"
-                      ? "Skipped"
-                      : "Moved"}
-              </span>
+              {task.status !== "planned" ? (
+                <span
+                  className={`shrink-0 rounded-full border px-2 py-0.5 text-[11px] font-medium ${
+                    task.status === "done"
+                      ? "border-accent/20 bg-teal-light text-teal"
+                      : task.status === "skipped"
+                        ? "border-border bg-surface-alt text-ink-muted"
+                        : "border-accent/20 bg-accent-soft/60 text-accent"
+                  }`}
+                >
+                  {task.status === "done" ? "Done" : task.status === "skipped" ? "Skipped" : "Moved"}
+                </span>
+              ) : null}
             </div>
-            <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-[12px] text-ink-muted sm:text-[13px]">
-              {task.scheduled_time_start && (
-                <span>{formatClockRange(task.scheduled_time_start, task.scheduled_time_end)}</span>
-              )}
-              <span>{dur} min</span>
+            <div className="mt-0.5 text-[12px] text-ink-muted">
+              {task.scheduled_time_start
+                ? formatClockRange(task.scheduled_time_start, task.scheduled_time_end)
+                : `${dur} min`}
             </div>
           </div>
         </div>
@@ -176,7 +169,7 @@ export function PlannerDayView({
   });
 
   return (
-    <div className="flex flex-col gap-6">
+    <div className="flex flex-col gap-4">
       {noTime.filter((t) => itemById.has(t.item_id)).length > 0 && (
         <section aria-label="Tasks without a start time">
           <h3 className="mb-2 text-[12px] font-semibold uppercase tracking-wide text-ink-muted">
@@ -281,8 +274,13 @@ export function PlannerDayView({
                   })
                 }
               >
-                <span className="flex min-w-0 items-center gap-1">
-                  <CategoryIcon category={item.category} variant="bare" size={16} />
+                <span className="flex min-w-0 items-center gap-1.5">
+                  <TaskIcon
+                    title={task.title_snapshot}
+                    category={item.category}
+                    override={item.icon}
+                    size={18}
+                  />
                   <span
                     className={`min-w-0 flex-1 truncate text-[13px] ${
                       routine ? "font-medium text-ink-muted" : "font-semibold text-ink"
@@ -291,8 +289,8 @@ export function PlannerDayView({
                     {task.title_snapshot}
                   </span>
                 </span>
-                {heightPx >= 40 ? (
-                  <span className="mt-0.5 block truncate text-[11px] text-ink-muted">{when}</span>
+                {heightPx >= 28 ? (
+                  <span className="block truncate text-[10px] leading-tight text-ink-muted">{when}</span>
                 ) : null}
               </DragBlock>
             );
