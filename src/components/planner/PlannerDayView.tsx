@@ -6,6 +6,7 @@ import { CategoryIcon } from "@/components/CategoryIcon";
 import { consumeBackgroundClick, DragBlock } from "@/components/planner/DragBlock";
 import { timeStartToHour, parseTimeToMinutesSinceMidnight } from "@/components/planner/planner-view-utils";
 import { formatClock, formatClockRange } from "@/lib/planner/clock-label";
+import { isRoutineMarkerId } from "@/lib/planner/routine-markers";
 import { minutesFromPointerY, minutesToHHMM, TIMELINE_END_MIN, TIMELINE_START_MIN } from "@/lib/planner/time-snap";
 
 const DAY_START_HOUR = 6;
@@ -78,17 +79,19 @@ export function PlannerDayView({
   ) => void;
   onCreateAt: (dateISO: string, timeHHMM: string) => void;
 }) {
-  const anchors = tasks.filter((task) => itemById.get(task.item_id)?.type === "anchor");
-  const blocks = tasks.filter((task) => itemById.get(task.item_id)?.type !== "anchor");
   const noTime: PlannedTask[] = [];
   const outsideWindow: PlannedTask[] = [];
+  const onTimeline: PlannedTask[] = [];
 
-  for (const task of blocks) {
+  for (const task of tasks) {
+    if (!itemById.has(task.item_id)) continue;
     const hour = timeStartToHour(task.scheduled_time_start);
     if (hour == null) {
       noTime.push(task);
     } else if (hour < DAY_START_HOUR || hour > DAY_END_HOUR) {
       outsideWindow.push(task);
+    } else {
+      onTimeline.push(task);
     }
   }
 
@@ -149,7 +152,7 @@ export function PlannerDayView({
   }
 
   const timelineHeight = ((TIMELINE_END_MIN - TIMELINE_START_MIN) / 60) * HOUR_PX;
-  const timedBlocks = blocks.flatMap((task) => {
+  const timedBlocks = onTimeline.flatMap((task) => {
     const item = itemById.get(task.item_id);
     const start = task.scheduled_time_start
       ? parseTimeToMinutesSinceMidnight(task.scheduled_time_start)
@@ -164,36 +167,6 @@ export function PlannerDayView({
 
   return (
     <div className="flex flex-col gap-6">
-      {anchors.length > 0 && (
-        <section aria-label="Routines">
-          <h3 className="mb-2 text-[12px] font-semibold uppercase tracking-wide text-ink-muted">
-            Routines
-          </h3>
-          <ul className="flex flex-col gap-2">
-            {anchors.map((task) => {
-              const item = itemById.get(task.item_id);
-              if (!item) return null;
-              return (
-                <li key={task.id}>
-                  <button
-                    type="button"
-                    onClick={() => onOpenTask(task.id)}
-                    className="flex min-h-11 w-full items-center gap-3 rounded-full border border-border bg-surface-alt/70 px-3 text-left"
-                  >
-                    <span className="h-2.5 w-2.5 shrink-0 rounded-full bg-accent" aria-hidden />
-                    <span className="min-w-0 flex-1 truncate text-[14px] text-ink">{task.title_snapshot}</span>
-                    {task.scheduled_time_start && (
-                      <span className="text-[12px] text-ink-muted">
-                        {formatClock(task.scheduled_time_start)}
-                      </span>
-                    )}
-                  </button>
-                </li>
-              );
-            })}
-          </ul>
-        </section>
-      )}
       {noTime.filter((t) => itemById.has(t.item_id)).length > 0 && (
         <section aria-label="Tasks without a start time">
           <h3 className="mb-2 text-[12px] font-semibold uppercase tracking-wide text-ink-muted">
@@ -216,7 +189,7 @@ export function PlannerDayView({
         </section>
       )}
 
-      {blocks.length === 0 && anchors.length === 0 ? (
+      {onTimeline.length === 0 && noTime.length === 0 && outsideWindow.length === 0 ? (
         <p className="rounded-[14px] border border-dashed border-border bg-surface-alt/60 px-4 py-6 text-center text-[13px] text-ink-muted">
           Nothing here yet. Tap an open time to add something.
         </p>
@@ -261,7 +234,8 @@ export function PlannerDayView({
             />
           ))}
           {layoutDayBlocks(timedBlocks).map(({ task, item, startMin, endMin, lane, laneCount, heightPx, top }) => {
-            const editable = task.status !== "done" && task.status !== "skipped";
+            const routine = item.type === "anchor";
+            const editable = task.status !== "done" && task.status !== "skipped" && !isRoutineMarkerId(task.id);
             const when = formatClockRange(minutesToHHMM(startMin), minutesToHHMM(endMin));
             const width = `calc((100% - 8px) / ${laneCount})`;
             const left = `calc(4px + ${lane} * (100% - 8px) / ${laneCount})`;
@@ -269,13 +243,17 @@ export function PlannerDayView({
               <DragBlock
                 key={task.id}
                 enabled={editable}
-                canResize={editable && heightPx >= 56}
+                canResize={!routine && editable && heightPx >= 56}
                 startMin={startMin}
                 endMin={endMin}
                 hourPx={HOUR_PX}
                 dateISO={dateISO}
-                ariaLabel={`${task.title_snapshot}, ${when}. Tap to open.`}
-                className="absolute z-[5] overflow-hidden rounded-[12px] border border-border bg-[#f6f4f0] px-2 py-1 text-left shadow-soft"
+                ariaLabel={`${routine ? "Routine, " : ""}${task.title_snapshot}, ${when}. Tap to open.`}
+                className={`absolute z-[5] overflow-hidden rounded-[12px] px-2 py-1 text-left ${
+                  routine
+                    ? "border border-dashed border-[#e5dad0] bg-[#f6f4f0]"
+                    : "border border-border bg-[#f6f4f0] shadow-soft"
+                }`}
                 style={{ top, height: heightPx, width, left }}
                 onOpen={() => onOpenTask(task.id)}
                 onCommit={(next) =>
@@ -288,7 +266,11 @@ export function PlannerDayView({
               >
                 <span className="flex min-w-0 items-center gap-1">
                   <CategoryIcon category={item.category} variant="bare" size={16} />
-                  <span className="min-w-0 flex-1 truncate text-[13px] font-semibold text-ink">
+                  <span
+                    className={`min-w-0 flex-1 truncate text-[13px] ${
+                      routine ? "font-medium text-ink-muted" : "font-semibold text-ink"
+                    }`}
+                  >
                     {task.title_snapshot}
                   </span>
                 </span>

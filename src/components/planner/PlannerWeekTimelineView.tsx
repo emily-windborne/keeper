@@ -304,11 +304,9 @@ export function PlannerWeekTimelineView({
               ? parseTimeToMinutesSinceMidnight(task.scheduled_time_end)
               : null;
             const durMin =
-              item.type === "anchor"
-                ? 15
-                : endRaw != null && endRaw > startRaw
-                  ? endRaw - startRaw
-                  : Math.max(15, item.estimated_minutes);
+              endRaw != null && endRaw > startRaw
+                ? endRaw - startRaw
+                : Math.max(15, item.estimated_minutes);
             const rangeEnd = startRaw + durMin;
             const startMin = clamp(startRaw, timelineStartMin, timelineEndMin - 1);
             const endForLane = clamp(rangeEnd, startMin + 1, timelineEndMin);
@@ -466,10 +464,10 @@ export function PlannerWeekTimelineView({
                       top: topPx,
                       height: heightPx,
                       borderRadius: 4,
-                      backgroundColor: routine ? MUSTARD_SOFT : CREAM,
-                      border: `1px solid ${SPINE}`,
-                      borderLeft: `3px solid ${MUSTARD}`,
-                      color: NAVY,
+                      backgroundColor: routine ? "#f3efe4" : CREAM,
+                      border: routine ? `1px dashed ${SPINE}` : `1px solid ${SPINE}`,
+                      borderLeft: routine ? `1px dashed ${SPINE}` : `3px solid ${MUSTARD}`,
+                      color: routine ? TEXT_MUTED : NAVY,
                       opacity: completed || pastRecede ? 0.45 : 1,
                     }}
                     onOpen={() => onOpenTask(task.id)}
