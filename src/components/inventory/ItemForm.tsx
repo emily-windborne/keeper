@@ -11,6 +11,7 @@ import type {
 } from "@/data/inventory-mock";
 import { FrequencyFields, type FrequencyFormValue } from "@/components/inventory/FrequencyFields";
 import { computeInitialNextDueDate } from "@/lib/inventory/compute-next-due";
+import { formatClock } from "@/lib/planner/clock-label";
 import {
   clampEvery,
   frequencyTypeForInterval,
@@ -447,7 +448,7 @@ export function ItemForm({
       </Field>
 
       {flexibility === "Fixed" && (
-        <Field label="Starts at">
+        <Field label={fixedStart ? `Starts at ${formatClock(fixedStart)}` : "Starts at"}>
           <input
             type="time"
             value={fixedStart}
@@ -456,7 +457,7 @@ export function ItemForm({
             className="w-full rounded-[10px] border border-border bg-surface-raised px-4 py-3 text-base text-ink shadow-sm outline-none focus:border-accent/40 focus:ring-2 focus:ring-accent/15 disabled:opacity-60"
           />
           <span className="mt-1.5 block text-xs text-ink-muted">
-            Example: Wednesday 1:00 to 4:00 is 13:00 and a 180 minute duration. Keeper will not slide it.
+            Example: Wednesday 1:00 to 4:00 PM is a 180 minute duration. Keeper will not slide it.
           </span>
         </Field>
       )}

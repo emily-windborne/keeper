@@ -1,6 +1,7 @@
 "use client";
 
 import { CategoryIcon } from "@/components/CategoryIcon";
+import { formatClockRange } from "@/lib/planner/clock-label";
 import type { Item } from "@/data/inventory-mock";
 import type { PlannedTask } from "@/lib/db/map-rows";
 
@@ -74,10 +75,7 @@ export function PlannerTaskList({
                   </div>
                   <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-[13px] text-ink-muted">
                     {task.scheduled_time_start && (
-                      <span>
-                        {task.scheduled_time_start}
-                        {task.scheduled_time_end ? ` - ${task.scheduled_time_end}` : ""}
-                      </span>
+                      <span>{formatClockRange(task.scheduled_time_start, task.scheduled_time_end)}</span>
                     )}
                     <span>{displayedDurationMinutes} min</span>
                     <span className="hidden sm:inline">{item.category}</span>

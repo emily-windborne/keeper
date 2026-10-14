@@ -1,11 +1,11 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { Fragment, useEffect, useMemo, useState } from "react";
 import type { Item } from "@/data/inventory-mock";
 import type { PlannedTask } from "@/lib/db/map-rows";
-import { CategoryIcon } from "@/components/CategoryIcon";
 import { consumeBackgroundClick, DragBlock } from "@/components/planner/DragBlock";
 import { parseTimeToMinutesSinceMidnight, toISODate } from "@/components/planner/planner-view-utils";
+import { formatClockRange } from "@/lib/planner/clock-label";
 import { minutesFromPointerY, minutesToHHMM } from "@/lib/planner/time-snap";
 
 const VIEW_BG = "#F7F2EC";
@@ -14,22 +14,10 @@ const GOLD = "#caa510";
 const TEXT_MUTED = "rgba(15, 57, 76, 0.6)";
 const TEXT_TIME = "rgba(15, 57, 76, 0.4)";
 const TICK = "rgba(229, 218, 208, 0.55)";
-const COMPLETED_CIRCLE_BG = "rgba(15, 57, 76, 0.15)";
-const COMPLETED_ICON_COLOR = "rgba(15, 57, 76, 0.4)";
-const MAX_VISIBLE_LANES = 2;
-
-const CATEGORY_FILL: Record<string, string> = {
-  Home: "rgba(208, 228, 235, 0.95)",
-  Family: "rgba(243, 214, 200, 0.95)",
-  Personal: "rgba(232, 220, 196, 0.95)",
-  Work: "rgba(210, 222, 206, 0.95)",
-  Health: "rgba(240, 212, 216, 0.95)",
-  Upkeep: "rgba(245, 236, 196, 0.95)",
-};
-
-function categoryFill(category: string): string {
-  return CATEGORY_FILL[category] ?? "rgba(246, 244, 240, 0.95)";
-}
+const CREAM = "#f6f4f0";
+const NAVY = "#0f394c";
+const MUSTARD = "#caa510";
+const MUSTARD_SOFT = "#f5ecc4";
 
 const TIMELINE_FIRST_HOUR = 6;
 const TIMELINE_LAST_HOUR = 23;
@@ -37,7 +25,7 @@ const HOUR_COUNT = TIMELINE_LAST_HOUR - TIMELINE_FIRST_HOUR + 1;
 /** One hour of vertical space — 60 minutes of duration maps to this height. */
 const HOUR_PX = 36;
 const TIMELINE_HEIGHT = HOUR_COUNT * HOUR_PX;
-const UNSCHED_MIN_PX = 36;
+const UNSCHED_MIN_PX = 44;
 const UNSCHED_PER_CHIP_PX = 28;
 const UNSCHED_BAND_MAX_PX = 96;
 const timelineStartMin = TIMELINE_FIRST_HOUR * 60;
@@ -84,87 +72,27 @@ type TimedEntry = {
   rangeEnd: number;
 };
 
-function rangesIntersect(a: TimedEntry, b: TimedEntry): boolean {
-  return a.rangeStart < b.rangeEnd && b.rangeStart < a.rangeEnd;
-}
+type ShownEntry = TimedEntry & { extra: number; clusterEnd: number };
 
-/** Connected components: tasks linked if their time ranges intersect (transitively). */
-function overlapComponents(timed: TimedEntry[]): TimedEntry[][] {
-  const visited = new Set<string>();
-  const out: TimedEntry[][] = [];
-
-  function dfs(seed: TimedEntry, acc: TimedEntry[]) {
-    if (visited.has(seed.task.id)) return;
-    visited.add(seed.task.id);
-    acc.push(seed);
-    for (const u of timed) {
-      if (!visited.has(u.task.id) && rangesIntersect(seed, u)) {
-        dfs(u, acc);
-      }
+/**
+ * Phone columns are too narrow for two titles. Show one readable block,
+ * and a +N chip for anything that overlaps it.
+ */
+function collapseOverlaps(entries: TimedEntry[]): ShownEntry[] {
+  const sorted = [...entries].sort(
+    (a, b) => a.rangeStart - b.rangeStart || a.task.title_snapshot.localeCompare(b.task.title_snapshot),
+  );
+  const shown: ShownEntry[] = [];
+  for (const entry of sorted) {
+    const host = shown.find((row) => row.rangeStart < entry.rangeEnd && entry.rangeStart < row.clusterEnd);
+    if (host) {
+      host.extra += 1;
+      host.clusterEnd = Math.max(host.clusterEnd, entry.rangeEnd);
+      continue;
     }
+    shown.push({ ...entry, extra: 0, clusterEnd: entry.rangeEnd });
   }
-
-  for (const t of timed) {
-    if (visited.has(t.task.id)) continue;
-    const comp: TimedEntry[] = [];
-    dfs(t, comp);
-    out.push(comp);
-  }
-  return out;
-}
-
-/** Greedy interval coloring within one overlap group — minimum lanes, no stacked obscuring. */
-function assignLaneLayout(
-  timed: TimedEntry[],
-): Map<string, { lane: number; laneCount: number }> {
-  const sorted = [...timed].sort((a, b) => a.startMin - b.startMin || a.endMin - b.endMin);
-  const lanes: TimedEntry[][] = [];
-  for (const t of sorted) {
-    let placed = false;
-    for (let L = 0; L < lanes.length; L++) {
-      const laneTasks = lanes[L];
-      const last = laneTasks[laneTasks.length - 1];
-      if (last.endMin <= t.startMin) {
-        laneTasks.push(t);
-        placed = true;
-        break;
-      }
-    }
-    if (!placed) {
-      lanes.push([t]);
-    }
-  }
-  const laneCount = Math.max(1, lanes.length);
-  const out = new Map<string, { lane: number; laneCount: number }>();
-  for (let L = 0; L < lanes.length; L++) {
-    for (const t of lanes[L]) {
-      out.set(t.task.id, { lane: L, laneCount });
-    }
-  }
-  return out;
-}
-
-function buildOverlapLaneMap(timed: TimedEntry[]): Map<string, { lane: number; laneCount: number }> {
-  const out = new Map<string, { lane: number; laneCount: number }>();
-  for (const comp of overlapComponents(timed)) {
-    const local = assignLaneLayout(comp);
-    for (const [id, v] of local) out.set(id, v);
-  }
-  return out;
-}
-
-/** Per spec: 2 overlaps → 45% each; 3 → 30% each; larger groups split evenly with small gaps. */
-function horizontalLayoutForLaneCount(laneCount: number): { widthPct: number; gapPct: number } {
-  if (laneCount <= 1) return { widthPct: 100, gapPct: 0 };
-  if (laneCount === 2) return { widthPct: 45, gapPct: 10 };
-  if (laneCount === 3) return { widthPct: 30, gapPct: 5 };
-  const widthPct = 90 / laneCount;
-  const gapPct = (100 - widthPct * laneCount) / (laneCount - 1);
-  return { widthPct, gapPct };
-}
-
-function leftPctForLane(lane: number, widthPct: number, gapPct: number): number {
-  return lane * (widthPct + gapPct);
+  return shown;
 }
 
 function clamp(n: number, lo: number, hi: number): number {
@@ -175,24 +103,8 @@ function isCompletedLook(task: PlannedTask): boolean {
   return task.status === "done" || task.status === "skipped";
 }
 
-function TimelineColumnIcon({ task, item }: { task: PlannedTask; item: Item }) {
-  if (isCompletedLook(task)) {
-    return (
-      <span
-        className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full"
-        style={{ backgroundColor: COMPLETED_CIRCLE_BG }}
-        aria-hidden
-      >
-        <CategoryIcon
-          category={item.category}
-          variant="bare"
-          iconColor={COMPLETED_ICON_COLOR}
-          weight="fill"
-        />
-      </span>
-    );
-  }
-  return <CategoryIcon category={item.category} />;
+function whenLabel(task: PlannedTask): string {
+  return formatClockRange(task.scheduled_time_start, task.scheduled_time_end);
 }
 
 /** Today's column only: scheduled block has fully ended (start + estimated). */
@@ -293,15 +205,20 @@ export function PlannerWeekTimelineView({
   const timeGutterW = "1.75rem";
 
   return (
-    <div className="w-full max-w-[390px]" style={{ backgroundColor: VIEW_BG }}>
+    <div className="w-full overflow-x-auto" style={{ backgroundColor: VIEW_BG }}>
       {!hasAnyTask ? (
         <p className="px-4 py-3 text-center text-[13px] leading-relaxed" style={{ color: TEXT_MUTED }}>
           Nothing planned yet. Tap an open time to add something.
         </p>
       ) : null}
+      <div className="w-max min-w-full">
       {/* Header row */}
       <div className="sticky top-0 z-20 flex" style={{ backgroundColor: VIEW_BG }}>
-        <div className="shrink-0" style={{ width: timeGutterW }} aria-hidden />
+        <div
+          className="sticky left-0 z-30 shrink-0"
+          style={{ width: timeGutterW, backgroundColor: VIEW_BG }}
+          aria-hidden
+        />
         {weekDays.map((d) => {
           const iso = toISODate(d);
           const isToday = iso === todayISO;
@@ -311,7 +228,7 @@ export function PlannerWeekTimelineView({
               key={iso}
               type="button"
               onClick={() => onSelectDate(iso)}
-              className="min-h-[2.25rem] min-w-0 flex-1 py-1 text-center text-[12px] font-semibold tabular-nums"
+              className="min-h-11 min-w-[6.75rem] flex-1 py-1 text-center text-[13px] font-semibold tabular-nums"
               style={{ color: isToday ? GOLD : TEXT_MUTED }}
               aria-pressed={iso === selectedDateISO}
               aria-current={isToday ? "date" : undefined}
@@ -326,10 +243,11 @@ export function PlannerWeekTimelineView({
       <div className="flex">
         {/* Time labels + hour tick marks only in this column */}
         <div
-          className="relative shrink-0"
+          className="sticky left-0 z-30 shrink-0"
           style={{
             width: timeGutterW,
             height: unschedBandHeight + TIMELINE_HEIGHT,
+            backgroundColor: VIEW_BG,
           }}
         >
           <div
@@ -367,7 +285,6 @@ export function PlannerWeekTimelineView({
         {weekISOs.map((iso) => {
           const dayTasks = tasksByDate.get(iso) ?? [];
           const timed: TimedEntry[] = [];
-          const markers: TimedEntry[] = [];
           const unscheduled: { task: PlannedTask; item: Item }[] = [];
           const isTodayCol = iso === todayISO;
 
@@ -401,15 +318,12 @@ export function PlannerWeekTimelineView({
               rangeStart: startRaw,
               rangeEnd,
             };
-            if (item.type === "anchor") markers.push(entry);
-            else timed.push(entry);
+            timed.push(entry);
           }
 
-          const laneMap = buildOverlapLaneMap(timed);
-          const visibleTimed = timed.filter(
-            (entry) => (laneMap.get(entry.task.id)?.lane ?? 0) < MAX_VISIBLE_LANES,
-          );
-          const hiddenCount = timed.length - visibleTimed.length;
+          const shown = collapseOverlaps(timed);
+          const unschedVisible = unscheduled.slice(0, 2);
+          const unschedExtra = unscheduled.length - unschedVisible.length;
           const timelineTop = unschedBandHeight;
           const timelineBottom = timelineTop + TIMELINE_HEIGHT;
 
@@ -417,7 +331,7 @@ export function PlannerWeekTimelineView({
             <div
               key={iso}
               data-day-column={iso}
-              className="relative min-w-0 flex-1"
+              className="relative min-w-[6.75rem] flex-1"
               style={{
                 height: unschedBandHeight + TIMELINE_HEIGHT,
                 backgroundColor: VIEW_BG,
@@ -444,21 +358,33 @@ export function PlannerWeekTimelineView({
                   borderColor: SPINE,
                 }}
               >
-                {unscheduled.map(({ task, item }) => {
-                  return (
-                    <button
-                      key={task.id}
-                      type="button"
-                      onClick={() => onOpenTask(task.id)}
-                      title={task.title_snapshot}
-                      className="flex shrink-0 items-center justify-center rounded-full px-0.5 py-0.5 transition-opacity active:opacity-85"
-                      style={{ backgroundColor: "rgba(15, 57, 76, 0.04)" }}
-                      aria-label={`Task actions for ${task.title_snapshot}, no time set`}
-                    >
-                      <TimelineColumnIcon task={task} item={item} />
-                    </button>
-                  );
-                })}
+                {unschedVisible.map(({ task }) => (
+                  <button
+                    key={task.id}
+                    type="button"
+                    onClick={() => onOpenTask(task.id)}
+                    title={task.title_snapshot}
+                    className="flex min-h-11 w-full items-center overflow-hidden rounded-[4px] px-1 text-left text-[12px] font-semibold"
+                    style={{ backgroundColor: MUSTARD_SOFT, color: NAVY }}
+                    aria-label={`Task actions for ${task.title_snapshot}, no time set`}
+                  >
+                    <span className="truncate">{task.title_snapshot}</span>
+                  </button>
+                ))}
+                {unschedExtra > 0 ? (
+                  <button
+                    type="button"
+                    className="min-h-11 min-w-11 rounded-[4px] px-1 text-[11px] font-semibold"
+                    style={{ backgroundColor: MUSTARD, color: NAVY }}
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      onOpenDay(iso);
+                    }}
+                    aria-label={`${unschedExtra} more on this day`}
+                  >
+                    +{unschedExtra}
+                  </button>
+                ) : null}
               </div>
 
               {/* Spine: 6am–11pm only */}
@@ -502,107 +428,83 @@ export function PlannerWeekTimelineView({
                 />
               )}
 
-              {markers.map(({ task, startMin, endMin }) => {
-                const topRatio = (startMin - timelineStartMin) / totalTimelineMin;
-                const topPx = timelineTop + topRatio * TIMELINE_HEIGHT;
-                const editable = !isCompletedLook(task);
-                return (
-                  <DragBlock
-                    key={task.id}
-                    enabled={editable}
-                    canResize={false}
-                    startMin={startMin}
-                    endMin={endMin}
-                    hourPx={HOUR_PX}
-                    dateISO={iso}
-                    weekDates={weekISOs}
-                    ariaLabel={`Routine, ${task.title_snapshot}, ${task.scheduled_time_start ?? ""}. Drag to move it.`}
-                    className="absolute left-1/2 z-[6] flex h-11 w-11 -translate-x-1/2 items-center justify-center"
-                    style={{ top: topPx - 8 }}
-                    onOpen={() => onOpenTask(task.id)}
-                    onCommit={(next) =>
-                      onCommitSchedule(task.id, {
-                        scheduled_date: next.dateISO,
-                        scheduled_time_start: minutesToHHMM(next.startMin),
-                        scheduled_time_end: minutesToHHMM(next.endMin),
-                      })
-                    }
-                  >
-                    <span className="h-2.5 w-2.5 rounded-full border border-[#caa510] bg-[#f5ecc4]" title={task.title_snapshot} />
-                  </DragBlock>
-                );
-              })}
-
-              {hiddenCount > 0 ? (
-                <button
-                  type="button"
-                  className="absolute left-0 right-0 z-30 flex h-11 items-center justify-center px-0.5 text-center text-[10px] font-semibold leading-tight text-[#0f394c]"
-                  style={{ top: timelineTop }}
-                  onClick={(event) => {
-                    event.stopPropagation();
-                    onOpenDay(iso);
-                  }}
-                  aria-label={`${hiddenCount} more on this day`}
-                >
-                  +{hiddenCount} more
-                </button>
-              ) : null}
-
-              {/* Timed pills on spine */}
-              {visibleTimed.map(({ task, item, startMin, endMin }) => {
+              {shown.map(({ task, item, startMin, endMin, extra }) => {
                 const topRatio = (startMin - timelineStartMin) / totalTimelineMin;
                 const topPx = timelineTop + topRatio * TIMELINE_HEIGHT;
                 const durationMin = Math.max(15, endMin - startMin);
-                let heightPx = Math.max(44, (durationMin / 60) * HOUR_PX);
+                let heightPx = Math.max(18, (durationMin / 60) * HOUR_PX);
                 heightPx = Math.min(heightPx, timelineBottom - topPx);
-
-                const layout = laneMap.get(task.id) ?? { lane: 0, laneCount: 1 };
-                const shownLanes = Math.min(layout.laneCount, MAX_VISIBLE_LANES);
-                const { widthPct, gapPct } = horizontalLayoutForLaneCount(shownLanes);
-                const leftPct = leftPctForLane(layout.lane, widthPct, gapPct);
-
+                const routine = item.type === "anchor";
                 const completed = isCompletedLook(task);
                 const pastRecede =
                   !completed && isTimedTaskPastToday(iso, todayISO, task, item, nowMs);
                 const editable = !completed;
+                const when = whenLabel(task);
 
                 return (
-                  <DragBlock
-                    key={task.id}
-                    enabled={editable}
-                    canResize={editable}
-                    startMin={startMin}
-                    endMin={startMin + durationMin}
-                    hourPx={HOUR_PX}
-                    dateISO={iso}
-                    weekDates={weekISOs}
-                    ariaLabel={`${task.title_snapshot}, ${task.scheduled_time_start ?? ""}. Drag to move, or drag the gold bar to change the length.`}
-                    className="absolute z-[5] flex flex-col items-center justify-start border-0 pt-1"
-                    style={{
-                      top: topPx,
-                      left: `${leftPct}%`,
-                      width: `${widthPct}%`,
-                      height: heightPx,
-                      borderRadius: 9999,
-                      backgroundColor: categoryFill(item.category),
-                      opacity: pastRecede ? 0.4 : 1,
-                    }}
-                    onOpen={() => onOpenTask(task.id)}
-                    onCommit={(next) =>
-                      onCommitSchedule(task.id, {
-                        scheduled_date: next.dateISO,
-                        scheduled_time_start: minutesToHHMM(next.startMin),
-                        scheduled_time_end: minutesToHHMM(next.endMin),
-                      })
-                    }
-                  >
-                    <TimelineColumnIcon task={task} item={item} />
-                  </DragBlock>
+                  <Fragment key={task.id}>
+                    <DragBlock
+                      enabled={editable}
+                      canResize={editable && !routine && heightPx >= 40}
+                      startMin={startMin}
+                      endMin={startMin + durationMin}
+                      hourPx={HOUR_PX}
+                      dateISO={iso}
+                      weekDates={weekISOs}
+                      ariaLabel={`${routine ? "Routine, " : ""}${task.title_snapshot}, ${when}. Drag to move${routine ? " it" : ", or drag the gold bar to change the length"}.`}
+                      className="absolute left-0.5 right-0.5 z-[5] overflow-hidden px-0.5 text-left"
+                      style={{
+                        top: topPx,
+                        height: heightPx,
+                        borderRadius: 4,
+                        backgroundColor: routine ? MUSTARD_SOFT : CREAM,
+                        border: `1px solid ${SPINE}`,
+                        borderLeft: `3px solid ${MUSTARD}`,
+                        color: NAVY,
+                        opacity: completed || pastRecede ? 0.45 : 1,
+                      }}
+                      onOpen={() => onOpenTask(task.id)}
+                      onCommit={(next) =>
+                        onCommitSchedule(task.id, {
+                          scheduled_date: next.dateISO,
+                          scheduled_time_start: minutesToHHMM(next.startMin),
+                          scheduled_time_end: minutesToHHMM(next.endMin),
+                        })
+                      }
+                    >
+                      <span className="block truncate text-[12px] font-semibold leading-tight">
+                        {task.title_snapshot}
+                      </span>
+                      {heightPx >= 34 ? (
+                        <span
+                          className="mt-0.5 block truncate text-[10px] font-medium leading-tight"
+                          style={{ color: TEXT_MUTED }}
+                        >
+                          {when}
+                        </span>
+                      ) : null}
+                    </DragBlock>
+                    {extra > 0 ? (
+                      <button
+                        type="button"
+                        className="absolute left-0.5 right-0.5 z-30 flex min-h-11 items-center justify-center rounded-[4px] text-[11px] font-semibold"
+                        style={{ top: topPx + heightPx, backgroundColor: MUSTARD, color: NAVY }}
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          onOpenDay(iso);
+                        }}
+                        aria-label={`${extra} more at this time`}
+                      >
+                        +{extra}
+                      </button>
+                    ) : null}
+                  </Fragment>
                 );
               })}
             </div>
           );
         })}
+      </div>
       </div>
     </div>
   );

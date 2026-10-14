@@ -5,6 +5,7 @@ import type { Item } from "@/data/inventory-mock";
 import { CategoryIcon } from "@/components/CategoryIcon";
 import { toISODate } from "@/components/planner/planner-view-utils";
 import type { NewPlannedTaskInput } from "@/lib/db/map-rows";
+import { formatClockRange } from "@/lib/planner/clock-label";
 
 type AddMode = "quick" | "inventory";
 
@@ -297,6 +298,9 @@ export function AddToWeekSheet({
               <label className="block">
                 <span className="mb-2 block text-[13px] font-medium text-ink-muted">
                   Time (optional)
+                  {scheduledTimeStart
+                    ? ` · ${formatClockRange(scheduledTimeStart, scheduledTimeEnd)}`
+                    : ""}
                 </span>
                 <input
                   type="time"

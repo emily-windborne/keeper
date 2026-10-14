@@ -4,7 +4,7 @@ import { createClient } from "@lib/supabase";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import dynamic from "next/dynamic";
 import { useRouter, useSearchParams } from "next/navigation";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
 import type { Item } from "@/data/inventory-mock";
 import { PlannerCalendarPopover } from "@/components/planner/PlannerCalendarPopover";
 import { PlannerDayView } from "@/components/planner/PlannerDayView";
@@ -35,7 +35,7 @@ import { AddToWeekSheet } from "@/components/planner/AddToWeekSheet";
 import { AskKeeperPanel } from "@/components/planner/AskKeeperPanel";
 import { BrainDumpPreviewSheet } from "@/components/planner/BrainDumpPreviewSheet";
 import { TaskActionsSheet } from "@/components/planner/TaskActionsSheet";
-import { ToastView } from "@/components/planner/ToastView";
+import { TOAST_DISMISS_MS, ToastView } from "@/components/planner/ToastView";
 import { markPlannedTaskDone } from "@/lib/planner/mark-task-done";
 import { applyPlanMyWeek } from "@/lib/planner/apply-plan-my-week";
 import { DEFAULT_DAY_START_MIN } from "@/lib/planner/plan-my-week";
@@ -246,7 +246,7 @@ export function PlannerScreen() {
 
   useEffect(() => {
     if (!toast) return;
-    const ms = toast.onUndo ? 12000 : 2600;
+    const ms = TOAST_DISMISS_MS;
     const t = window.setTimeout(() => setToast(null), ms);
     return () => window.clearTimeout(t);
   }, [toast]);
@@ -770,6 +770,24 @@ export function PlannerScreen() {
     const d = new Date(`${selectedDateISO}T12:00:00`);
     d.setDate(d.getDate() + delta);
     jumpPlannerToDate(toISODate(d));
+  }
+
+  const daySwipe = useRef<{ x: number; y: number; pointerId: number } | null>(null);
+
+  function onDayPointerDown(event: ReactPointerEvent<HTMLDivElement>) {
+    const target = event.target as HTMLElement;
+    if (target.closest("[data-task], button, a, input, textarea, select, label")) return;
+    daySwipe.current = { x: event.clientX, y: event.clientY, pointerId: event.pointerId };
+  }
+
+  function onDayPointerUp(event: ReactPointerEvent<HTMLDivElement>) {
+    const start = daySwipe.current;
+    daySwipe.current = null;
+    if (!start || start.pointerId !== event.pointerId) return;
+    const dx = event.clientX - start.x;
+    const dy = event.clientY - start.y;
+    if (Math.abs(dx) < 48 || Math.abs(dx) < Math.abs(dy) * 1.25) return;
+    shiftDay(dx < 0 ? 1 : -1);
   }
 
   function shiftMonth(delta: -1 | 1) {
@@ -1311,7 +1329,12 @@ export function PlannerScreen() {
               {sectionTitle}
             </h2>
 
-            <div className="mt-4 flex-1 overflow-y-auto pr-1 pb-44">
+            <div
+              className="mt-4 flex-1 overflow-y-auto pr-1 pb-44"
+              onPointerDown={plannerView === "day" ? onDayPointerDown : undefined}
+              onPointerUp={plannerView === "day" ? onDayPointerUp : undefined}
+              onPointerCancel={plannerView === "day" ? () => { daySwipe.current = null; } : undefined}
+            >
               {plannerView === "day" ? (
                 <PlannerDayView
                   tasks={selectedDayTasks}
@@ -1499,6 +1522,7 @@ export function PlannerScreen() {
         <ToastView
           message={toast.message}
           onUndo={toast.onUndo}
+          onDismiss={() => setToast(null)}
         />
       )}
     </div>

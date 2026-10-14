@@ -5,6 +5,7 @@ import type { Item } from "@/data/inventory-mock";
 import { CategoryIcon } from "@/components/CategoryIcon";
 import { ItemForm } from "@/components/inventory/ItemForm";
 import type { PlannedTask } from "@/lib/db/map-rows";
+import { formatClockRange, formatClocksInText } from "@/lib/planner/clock-label";
 
 type EditTab = "instance" | "all";
 
@@ -82,7 +83,7 @@ export function PlannerTaskEditSheet({
     setEventDate(task.scheduled_date);
     setEventTimeStart(task.scheduled_time_start ?? "");
     setEventDuration(String(durationMinutesForTask(task, item)));
-    setEventNotes(task.notes ?? "");
+    setEventNotes(task.notes ? formatClocksInText(task.notes) : "");
     // Re-init only when a new edit session starts (avoids resetting if `item` reference churns).
     // eslint-disable-next-line react-hooks/exhaustive-deps -- task/item read when open + sessionKey change
   }, [open, sessionKey]);
@@ -219,6 +220,9 @@ export function PlannerTaskEditSheet({
                 <label className="block">
                   <span className="mb-2 block text-[13px] font-medium text-ink-muted">
                     Time (optional)
+                    {eventTimeStart
+                      ? ` · ${formatClockRange(eventTimeStart, scheduledTimeEnd)}`
+                      : ""}
                   </span>
                   <input
                     type="time"

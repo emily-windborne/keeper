@@ -183,13 +183,13 @@ export function DragBlock({
         {enabled && canResize ? (
           <span
             role="presentation"
-            className="absolute inset-x-0 bottom-0 z-10 flex h-6 items-end justify-center"
+            className="absolute inset-x-0 bottom-0 z-10 h-2"
             onPointerDown={(event) => begin(event, "resize")}
             onPointerMove={update}
             onPointerUp={finish}
             onPointerCancel={finish}
           >
-            <span className="mb-1 h-1.5 w-8 rounded-full bg-[#caa510]" />
+            <span className="absolute inset-x-1 bottom-0 h-px bg-[#caa510]" />
           </span>
         ) : null}
       </div>

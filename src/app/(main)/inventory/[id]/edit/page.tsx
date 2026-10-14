@@ -7,7 +7,7 @@ import { useParams, useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { ConfirmSheet } from "@/components/ConfirmSheet";
 import { ItemForm } from "@/components/inventory/ItemForm";
-import { ToastView } from "@/components/planner/ToastView";
+import { TOAST_DISMISS_MS, ToastView } from "@/components/planner/ToastView";
 import { toISODate } from "@/components/planner/planner-view-utils";
 import type { Item } from "@/data/inventory-mock";
 import { itemToUpdateRow, mapItemRow, mapPlannedTaskRow, plannedTaskToInsertRow, type PlannedTask } from "@/lib/db/map-rows";
@@ -67,7 +67,7 @@ export default function EditInventoryItemPage() {
 
   useEffect(() => {
     if (!toast) return;
-    const timer = window.setTimeout(() => setToast(null), toast.onUndo ? 12000 : 2600);
+    const timer = window.setTimeout(() => setToast(null), TOAST_DISMISS_MS);
     return () => window.clearTimeout(timer);
   }, [toast]);
 
@@ -324,7 +324,9 @@ export default function EditInventoryItemPage() {
         onConfirm={() => void (confirmMode === "delete" ? handleDelete() : handleClearUpcoming())}
         onCancel={() => setConfirmMode(null)}
       />
-      {toast ? <ToastView message={toast.message} onUndo={toast.onUndo} /> : null}
+      {toast ? (
+        <ToastView message={toast.message} onUndo={toast.onUndo} onDismiss={() => setToast(null)} />
+      ) : null}
     </div>
   );
 }
