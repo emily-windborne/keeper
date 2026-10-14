@@ -205,15 +205,20 @@ export function PlannerWeekTimelineView({
   const timeGutterW = "1.75rem";
 
   return (
-    <div className="w-full max-w-[390px]" style={{ backgroundColor: VIEW_BG }}>
+    <div className="w-full overflow-x-auto" style={{ backgroundColor: VIEW_BG }}>
       {!hasAnyTask ? (
         <p className="px-4 py-3 text-center text-[13px] leading-relaxed" style={{ color: TEXT_MUTED }}>
           Nothing planned yet. Tap an open time to add something.
         </p>
       ) : null}
+      <div className="w-max min-w-full">
       {/* Header row */}
       <div className="sticky top-0 z-20 flex" style={{ backgroundColor: VIEW_BG }}>
-        <div className="shrink-0" style={{ width: timeGutterW }} aria-hidden />
+        <div
+          className="sticky left-0 z-30 shrink-0"
+          style={{ width: timeGutterW, backgroundColor: VIEW_BG }}
+          aria-hidden
+        />
         {weekDays.map((d) => {
           const iso = toISODate(d);
           const isToday = iso === todayISO;
@@ -223,7 +228,7 @@ export function PlannerWeekTimelineView({
               key={iso}
               type="button"
               onClick={() => onSelectDate(iso)}
-              className="min-h-[2.25rem] min-w-0 flex-1 py-1 text-center text-[12px] font-semibold tabular-nums"
+              className="min-h-11 min-w-[6.75rem] flex-1 py-1 text-center text-[13px] font-semibold tabular-nums"
               style={{ color: isToday ? GOLD : TEXT_MUTED }}
               aria-pressed={iso === selectedDateISO}
               aria-current={isToday ? "date" : undefined}
@@ -238,10 +243,11 @@ export function PlannerWeekTimelineView({
       <div className="flex">
         {/* Time labels + hour tick marks only in this column */}
         <div
-          className="relative shrink-0"
+          className="sticky left-0 z-30 shrink-0"
           style={{
             width: timeGutterW,
             height: unschedBandHeight + TIMELINE_HEIGHT,
+            backgroundColor: VIEW_BG,
           }}
         >
           <div
@@ -325,7 +331,7 @@ export function PlannerWeekTimelineView({
             <div
               key={iso}
               data-day-column={iso}
-              className="relative min-w-0 flex-1"
+              className="relative min-w-[6.75rem] flex-1"
               style={{
                 height: unschedBandHeight + TIMELINE_HEIGHT,
                 backgroundColor: VIEW_BG,
@@ -358,7 +364,7 @@ export function PlannerWeekTimelineView({
                     type="button"
                     onClick={() => onOpenTask(task.id)}
                     title={task.title_snapshot}
-                    className="flex min-h-11 w-full items-center overflow-hidden rounded-[4px] px-0.5 text-left text-[10px] font-semibold"
+                    className="flex min-h-11 w-full items-center overflow-hidden rounded-[4px] px-1 text-left text-[12px] font-semibold"
                     style={{ backgroundColor: MUSTARD_SOFT, color: NAVY }}
                     aria-label={`Task actions for ${task.title_snapshot}, no time set`}
                   >
@@ -466,9 +472,17 @@ export function PlannerWeekTimelineView({
                         })
                       }
                     >
-                      <span className="block truncate text-[9px] font-semibold leading-tight">
+                      <span className="block truncate text-[12px] font-semibold leading-tight">
                         {task.title_snapshot}
                       </span>
+                      {heightPx >= 34 ? (
+                        <span
+                          className="mt-0.5 block truncate text-[10px] font-medium leading-tight"
+                          style={{ color: TEXT_MUTED }}
+                        >
+                          {when}
+                        </span>
+                      ) : null}
                     </DragBlock>
                     {extra > 0 ? (
                       <button
@@ -490,6 +504,7 @@ export function PlannerWeekTimelineView({
             </div>
           );
         })}
+      </div>
       </div>
     </div>
   );
