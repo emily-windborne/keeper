@@ -34,6 +34,7 @@ export function itemColumns(
     notes: item.notes,
     ...(item.icon !== undefined ? { icon: isTaskIconId(item.icon) ? item.icon : null } : {}),
     is_archived: item.is_archived,
+    ...(item.archived_at !== undefined ? { archived_at: item.archived_at } : {}),
     last_completed_at: item.last_completed_at,
     next_due_date: item.next_due_date,
   };
@@ -78,6 +79,7 @@ type ItemRow = {
   notes: string | null;
   icon?: string | null;
   is_archived: boolean;
+  archived_at?: string | null;
   last_completed_at: string | null;
   next_due_date: string | null;
   created_at: string;
@@ -127,6 +129,7 @@ export function mapItemRow(row: ItemRow): Item {
       ? { icon: isTaskIconId(row.icon) ? row.icon : null }
       : {}),
     is_archived: row.is_archived,
+    ...(Object.prototype.hasOwnProperty.call(row, "archived_at") ? { archived_at: row.archived_at ?? null } : {}),
     last_completed_at: row.last_completed_at,
     next_due_date: row.next_due_date,
     created_at: row.created_at,

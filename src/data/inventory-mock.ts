@@ -29,6 +29,8 @@ export type Item = {
   /** Lucide name chosen in the edit sheet. Empty means the title picks the icon. */
   icon?: string | null;
   is_archived: boolean;
+  /** When a one-off moved to the archive. Missing on rows saved before that column existed. */
+  archived_at?: string | null;
   last_completed_at: string | null; // ISO date string
   next_due_date: string | null; // ISO date string
   created_at: string;

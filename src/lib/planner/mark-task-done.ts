@@ -5,6 +5,7 @@ import { computeNextDueDate } from "@/lib/inventory/compute-next-due";
 
 export type ItemCompletionPatch = {
   is_archived?: boolean;
+  archived_at?: string | null;
   last_completed_at: string;
   next_due_date?: string | null;
   completed_count?: number;
@@ -20,6 +21,7 @@ export function completionPatchForItem(item: Item, nowISO: string): ItemCompleti
   if (item.type === "one_off") {
     return {
       is_archived: true,
+      archived_at: nowISO,
       last_completed_at: nowISO,
       updated_at: nowISO,
     };
@@ -66,7 +68,12 @@ export async function markPlannedTaskDone(
     return { task: updatedTask, item, error: null };
   }
 
-  const { error: itemErr } = await supabase.from("items").update(patch).eq("id", item.id);
+  let itemErr = (await supabase.from("items").update(patch).eq("id", item.id)).error;
+  if (itemErr && patch.archived_at && /archived_at|schema cache/i.test(itemErr.message)) {
+    const withoutStamp = { ...patch };
+    delete withoutStamp.archived_at;
+    itemErr = (await supabase.from("items").update(withoutStamp).eq("id", item.id)).error;
+  }
   if (itemErr) {
     return { task: updatedTask, item, error: itemErr.message };
   }

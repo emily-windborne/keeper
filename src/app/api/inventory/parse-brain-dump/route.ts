@@ -12,6 +12,7 @@ import {
   scheduleLifeDump,
   type LifeClock,
 } from "@/lib/planner/life-dump";
+import { withSpokenFallback } from "@/lib/planner/spoken-intent";
 import { protectedWindowsFromUnknown } from "@/lib/planner/protected-time";
 import { loadProtectedTimes } from "@/lib/settings/protected-times";
 
@@ -104,8 +105,10 @@ Output only valid JSON (no markdown fences, no preamble) with this exact shape:
 }
 
 Rules:
-- Infer category from context (kids/school → Family, house chores → Home, exercise → Health, job → Work, etc.).
-- Use type "recurring" for habits and repeating chores; "one_off" for single errands; "goal" for longer aims; "anchor" for a quiet routine such as bedtime or skincare.
+- Infer category from context (kids/school → Family, house chores → Home, exercise → Health, job → Work, self-care → Personal).
+- title is a short name, never the person's whole sentence. "I want to add a routine which is Friday morning tanning drops" has title "Tanning drops".
+- Use type "recurring" for habits and repeating chores; "one_off" for single errands; "goal" for longer aims; "anchor" for a routine. The word "routine" is type "anchor". "every Friday" or "each Friday" is "recurring" or "anchor", never "one_off".
+- A vague morning starts no earlier than 7:00 AM and outside protected time. When weekday mornings are protected until 9:00 AM, start at 09:00. A vague evening starts after protected dinner, so 20:30 when dinner runs 6:30–8:30 PM. A clock time the person names may sit inside protected time.
 - Use "none" for frequency_type, frequency_unit, and preferred_time_of_day when they do not apply. Use 0 for frequency_value when there is no repeat. Use an empty array for preferred_days and an empty string for notes and minimum_success_threshold when there is nothing to add.
 - For recurring/goal: set frequency_unit to days, weeks, or months and frequency_value to how many of those units. "Every 10 days" is frequency_unit "days" and frequency_value 10. Never store that number as months, and never put the schedule into notes.
 - For one_off: frequency_type and frequency_unit are "none", and frequency_value is 0.
@@ -166,17 +169,25 @@ export async function POST(request: Request) {
     return NextResponse.json(out);
   }
 
+  const model = await readModelItems(leftover, clock);
+  const spoken = withSpokenFallback(leftover, model.items, clock);
+  const items = repairModelDrafts(spoken, clock);
+  if (items.length === 0 && known.length === 0 && model.error) {
+    return NextResponse.json({ error: model.error }, { status: model.status ?? 502 });
+  }
+  const out: ParseBrainDumpResponseBody = { items: [...known, ...items] };
+  return NextResponse.json(out);
+}
+
+async function readModelItems(
+  leftover: string,
+  clock: LifeClock,
+): Promise<{ items: BrainDumpItemDraft[]; error?: string; status?: number }> {
   const apiKey = process.env.ANTHROPIC_API_KEY?.trim();
   if (!apiKey) {
-    if (known.length > 0) {
-      const out: ParseBrainDumpResponseBody = { items: known };
-      return NextResponse.json(out);
-    }
-    return NextResponse.json({ error: "Server missing ANTHROPIC_API_KEY." }, { status: 503 });
+    return { items: [], error: "Server missing ANTHROPIC_API_KEY.", status: 503 };
   }
-
   const userPrompt = `${clockPrompt(clock)}\n\nParse the following into structured inventory items:\n\n${leftover}`;
-
   const completed = await completeStructuredJson(apiKey, {
     model: MODEL,
     system: SYSTEM_PROMPT,
@@ -186,19 +197,16 @@ export async function POST(request: Request) {
     effort: "high",
   });
   if ("error" in completed) {
-    return NextResponse.json({ error: completed.error }, { status: completed.status });
+    return { items: [], error: completed.error, status: completed.status };
   }
   const parsed = completed.json;
-
   if (!parsed || typeof parsed !== "object") {
-    return NextResponse.json({ error: "Invalid AI response shape." }, { status: 502 });
+    return { items: [], error: "Invalid AI response shape.", status: 502 };
   }
-
   const itemsRaw = (parsed as { items?: unknown }).items;
   if (!Array.isArray(itemsRaw)) {
-    return NextResponse.json({ error: "Invalid AI response: missing items array." }, { status: 502 });
+    return { items: [], error: "Invalid AI response: missing items array.", status: 502 };
   }
-
   const items: BrainDumpItemDraft[] = [];
   for (const row of itemsRaw) {
     const source = row && typeof row === "object" ? (row as Record<string, unknown>) : null;
@@ -221,9 +229,7 @@ export async function POST(request: Request) {
     const sanitized = sanitizeBrainDumpItem(normalized);
     if (sanitized) items.push(sanitized);
   }
-
-  const out: ParseBrainDumpResponseBody = { items: [...known, ...repairModelDrafts(items, clock)] };
-  return NextResponse.json(out);
+  return { items };
 }
 
 function readClock(body: unknown): LifeClock {
