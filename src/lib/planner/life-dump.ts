@@ -170,7 +170,19 @@ function locationOf(clause: string): string | null {
   return null;
 }
 
-function titleFor(clause: string, startMin: number | null): string {
+/** A request to add a routine or a vague day, not a one-off errand the planner already knows. */
+function leaveForModel(clause: string): boolean {
+  if (/\b(i want to|i(?:'d| would) like to|please add|which is)\b/i.test(clause)) return true;
+  if (/\b(routines?|recurring|every|each)\b/i.test(clause)) return true;
+  const vagueWhen = /\b(monday|tuesday|wednesday|thursday|friday|saturday|sunday|morning|afternoon|evening)\b/i.test(clause);
+  const namedClock =
+    /\b(?:at\s+)?\d{1,2}(?::\d{2})?\s*(?:a\.?m\.?|p\.?m\.?)\b/i.test(clause) || /\bat\s+\d{1,2}\b/i.test(clause);
+  const errand = /\b(ups|store|shop|auto parts|coolant|pick up|pickup|drive to|ship|errand|meeting|video call|craft|eyeglass)\b/i.test(clause);
+  if (vagueWhen && !namedClock && !errand) return true;
+  return clause.length > 80;
+}
+
+function titleFor(clause: string, startMin: number | null): string | null {
   if (/craft/i.test(clause)) return "Girls crafts";
   if (/eyeglass/i.test(clause)) return "Pick up mom's eyeglasses";
   if (/smoke shop/i.test(clause)) return "Smoke shop";
@@ -182,6 +194,7 @@ function titleFor(clause: string, startMin: number | null): string {
     const place = /\bjupiter\b/i.test(clause) ? " in Jupiter" : "";
     return `${when}meeting${place}`.replace(/^./, (c) => c.toUpperCase());
   }
+  if (leaveForModel(clause)) return null;
   const cleaned = clause
     .replace(/\b(tomorrow|today|this coming|coming|next|after those two|after those|after both)\b/gi, " ")
     .replace(/\bon the way(?: back| home)?\b/gi, " ")
@@ -314,7 +327,9 @@ export function interpretLifeDump(text: string, clock: LifeClock): LifeIntent[] 
   const intents: LifeIntent[] = [];
   for (const clause of splitClauses(text)) {
     const pieces = expandClause(clause);
-    const dated = pieces.map((piece) => readPiece(piece, clock.todayISO));
+    const dated = pieces
+      .map((piece) => readPiece(piece, clock.todayISO))
+      .filter((row): row is LifeIntent => row != null);
     for (let i = 0; i < dated.length; i += 1) {
       const current = dated[i];
       const next = dated[i + 1];
@@ -333,7 +348,7 @@ export function interpretLifeDump(text: string, clock: LifeClock): LifeIntent[] 
   return linkLifeOrder(intents);
 }
 
-function readPiece(clause: string, todayISO: string): LifeIntent {
+function readPiece(clause: string, todayISO: string): LifeIntent | null {
   const range = parseRange(clause);
   const at = range ? null : parseAt(clause);
   const startMin = range?.start ?? at;
@@ -343,8 +358,10 @@ function readPiece(clause: string, todayISO: string): LifeIntent {
   const stated = startMin != null && dated;
   const hasClock = startMin != null;
   const dateISO = resolveRelativeDate(clause, todayISO);
+  const title = titleFor(clause, startMin);
+  if (!title) return null;
   return {
-    title: titleFor(clause, startMin),
+    title,
     dateISO,
     startMin,
     endMin: endMin ?? (hasClock && stated ? startMin + durationMin : null),
@@ -686,8 +703,8 @@ export function leftoverLifeDump(text: string, clock: LifeClock): string {
   if (understood.size === 0) return text.trim();
   return splitClauses(text)
     .filter((clause) => {
-      const titles = expandClause(clause).map((piece) => readPiece(piece, clock.todayISO).title);
-      return titles.every((title) => !understood.has(title));
+      const pieces = expandClause(clause).map((piece) => readPiece(piece, clock.todayISO));
+      return pieces.some((piece) => piece == null || !understood.has(piece.title));
     })
     .join("; ");
 }

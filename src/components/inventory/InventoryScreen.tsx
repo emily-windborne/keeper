@@ -1,6 +1,7 @@
 "use client";
 
 import { createClient } from "@lib/supabase";
+import { Archive, ChevronLeft } from "lucide-react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ConfirmSheet } from "@/components/ConfirmSheet";
@@ -10,15 +11,15 @@ import { InventoryItemRow } from "@/components/inventory/InventoryItemRow";
 import { TOAST_DISMISS_MS, ToastView } from "@/components/planner/ToastView";
 import { type Item, type ItemCategory } from "@/data/inventory-mock";
 import { itemToInsertRow, mapItemRow, mapPlannedTaskRow, plannedTaskToInsertRow, type PlannedTask } from "@/lib/db/map-rows";
+import { formatDayAndRange } from "@/lib/planner/clock-label";
+import { settleOneOffArchive } from "@/lib/inventory/one-off-archive";
 import { clearPendingItemDelete, readPendingItemDelete, type PendingItemDelete } from "@/lib/inventory/pending-delete";
 
-type FilterId = "all" | "archived" | "recurring" | "one_off" | "goal" | "anchor" | ItemCategory;
+type FilterId = "all" | "archived" | "recurring" | "goal" | "anchor" | ItemCategory;
 
 const FILTERS: { id: FilterId; label: string }[] = [
   { id: "all", label: "All" },
-  { id: "archived", label: "Archived" },
   { id: "recurring", label: "Recurring" },
-  { id: "one_off", label: "One-off" },
   { id: "goal", label: "Goals" },
   { id: "anchor", label: "Routine" },
   { id: "Home", label: "Home" },
@@ -36,12 +37,28 @@ function matchesFilter(item: Item, filter: FilterId): boolean {
   if (item.is_archived) {
     return false;
   }
+  if (item.type === "one_off") return false;
   if (filter === "all") return true;
   if (filter === "recurring") return item.type === "recurring";
-  if (filter === "one_off") return item.type === "one_off";
   if (filter === "goal") return item.type === "goal";
   if (filter === "anchor") return item.type === "anchor";
   return item.category === filter;
+}
+
+function localTodayISO(): string {
+  const now = new Date();
+  const month = String(now.getMonth() + 1).padStart(2, "0");
+  const day = String(now.getDate()).padStart(2, "0");
+  return `${now.getFullYear()}-${month}-${day}`;
+}
+
+function rowDetail(item: Item): string {
+  if (item.type === "one_off") {
+    const day = item.next_due_date?.slice(0, 10);
+    if (day) return `${item.category} · ${formatDayAndRange(day, item.fixed_start_time, null)}`;
+    return item.category;
+  }
+  return `${item.category} · ${formatCadence(item)} · ${item.estimated_minutes} min`;
 }
 
 function formatCadence(item: Item): string {
@@ -79,7 +96,10 @@ export function InventoryScreen() {
       setItems([]);
       return;
     }
-    setItems((rows ?? []).map((r) => mapItemRow(r as Parameters<typeof mapItemRow>[0])));
+    const mapped = (rows ?? []).map((r) => mapItemRow(r as Parameters<typeof mapItemRow>[0]));
+    const settled = await settleOneOffArchive(supabase, mapped, localTodayISO());
+    setItems(settled.items);
+    if (settled.error) setToast({ message: settled.error });
   }, [supabase]);
 
   const undoPendingDelete = useCallback(
@@ -164,6 +184,7 @@ export function InventoryScreen() {
     return () => window.clearTimeout(timer);
   }, [toast]);
 
+  const viewingArchive = activeFilter === "archived";
   const filtered = useMemo(
     () => items.filter((item) => matchesFilter(item, activeFilter)),
     [activeFilter, items],
@@ -243,15 +264,23 @@ export function InventoryScreen() {
     const item = confirmItem;
     if (!item) return;
     const nowISO = new Date().toISOString();
-    const { error } = await supabase
+    const nextArchived = !item.is_archived;
+    const stamp = nextArchived ? nowISO : null;
+    let { error } = await supabase
       .from("items")
-      .update({ is_archived: !item.is_archived, updated_at: nowISO })
+      .update({ is_archived: nextArchived, archived_at: stamp, updated_at: nowISO })
       .eq("id", item.id);
+    if (error && /archived_at|schema cache/i.test(error.message)) {
+      const retry = await supabase.from("items").update({ is_archived: nextArchived, updated_at: nowISO }).eq("id", item.id);
+      error = retry.error;
+    }
     if (error) {
       setToast({ message: error.message });
       return;
     }
-    setItems((prev) => prev.map((row) => (row.id === item.id ? { ...row, is_archived: !item.is_archived } : row)));
+    setItems((prev) =>
+      prev.map((row) => (row.id === item.id ? { ...row, is_archived: nextArchived, archived_at: stamp } : row)),
+    );
     setConfirmItem(null);
     setToast({
       message: item.is_archived ? "Back in the main list." : "Archived.",
@@ -267,13 +296,27 @@ export function InventoryScreen() {
     <div className={`relative flex flex-1 flex-col ${LIST_CLEARANCE_ABOVE_ADD_CLASS}`}>
       <header className="mb-6 sm:mb-8">
         <h1 className="font-serif text-[26px] font-normal leading-tight tracking-tight text-ink sm:text-[26px]">
-          Inventory
+          {viewingArchive ? "Archive" : "Inventory"}
         </h1>
         <p className="mt-2 max-w-lg text-[13px] leading-relaxed text-ink-muted">
-          Everything you track. Recurring items, one-offs, and goals in one calm list.
+          {viewingArchive
+            ? "Past one-offs and anything you put away. One-offs leave after 30 days."
+            : "Routines, recurring items, and goals."}
         </p>
       </header>
 
+      {viewingArchive ? (
+        <button
+          type="button"
+          onClick={() => setActiveFilter("all")}
+          className="mb-4 inline-flex min-h-11 items-center gap-1 text-[13px] font-medium text-ink-muted"
+        >
+          <ChevronLeft className="h-4 w-4" aria-hidden />
+          Inventory
+        </button>
+      ) : null}
+
+      {viewingArchive ? null : (
       <div className="-mx-1 mb-6 sm:mb-8">
         <div
           className="flex flex-nowrap gap-2 overflow-x-auto pb-1 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
@@ -301,6 +344,7 @@ export function InventoryScreen() {
           })}
         </div>
       </div>
+      )}
 
       {loading ? (
         <p className="text-[13px] text-ink-muted">Loading…</p>
@@ -310,7 +354,7 @@ export function InventoryScreen() {
             <li key={item.id}>
               <InventoryItemRow
                 item={item}
-                detail={`${item.category} · ${formatCadence(item)} · ${item.estimated_minutes} min`}
+                detail={rowDetail(item)}
                 onOpen={() => router.push(`/inventory/${item.id}/edit`)}
                 onAskDelete={() => setConfirmItem(item)}
               />
@@ -321,9 +365,20 @@ export function InventoryScreen() {
 
       {!loading && filtered.length === 0 && (
         <p className="mt-8 rounded-[14px] border border-dashed border-border bg-surface-alt/60 px-4 py-10 text-center text-[13px] text-ink-muted">
-          Nothing in this view yet. Try another filter.
+          {viewingArchive ? "Nothing in the archive." : "Nothing in this view yet. Try another filter."}
         </p>
       )}
+
+      {!loading && !viewingArchive ? (
+        <button
+          type="button"
+          onClick={() => setActiveFilter("archived")}
+          className="mt-6 inline-flex min-h-11 items-center gap-1.5 self-start text-[13px] font-medium text-ink-muted"
+        >
+          <Archive className="h-4 w-4" aria-hidden />
+          Archive
+        </button>
+      ) : null}
 
       <FloatingAddButton label="Add new item" onClick={() => setAddOpen(true)} />
 

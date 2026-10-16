@@ -4,6 +4,7 @@ import {
   EMILY_WEEK_DUMP,
   addDaysISO,
   interpretLifeDump,
+  leftoverLifeDump,
   resolveRelativeDate,
   resolveWeekday,
   scheduleLifeDump,
@@ -26,6 +27,10 @@ function byTitle(rows: PlacedLife[], title: string): PlacedLife {
   assert.ok(found, title);
   return found!;
 }
+
+test("Emily's note is fully understood, so nothing is left for the model", () => {
+  assert.ok(leftoverLifeDump(EMILY_WEEK_DUMP, CLOCK).trim().length < 8);
+});
 
 test("tomorrow and this coming Sunday use the real current day", () => {
   assert.equal(resolveRelativeDate("tomorrow", "2026-10-13"), "2026-10-14");

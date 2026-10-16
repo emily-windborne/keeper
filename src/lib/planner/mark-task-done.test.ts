@@ -42,6 +42,7 @@ test("one-off mark done archives the item and keeps notes untouched", () => {
   );
   assert.deepEqual(patch, {
     is_archived: true,
+    archived_at: "2026-10-13T15:00:00.000Z",
     last_completed_at: "2026-10-13T15:00:00.000Z",
     updated_at: "2026-10-13T15:00:00.000Z",
   });

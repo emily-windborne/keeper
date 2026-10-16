@@ -202,17 +202,22 @@ export function BrainDumpPreviewSheet({
               <p className="py-8 text-center text-[13px] text-ink-muted">No items to add.</p>
             ) : (
               <ul className="flex flex-col gap-4 pb-4">
-                {rows.map((d, i) => (
+                {rows.map((d) => (
                   <li
                     key={d._key}
                     className="rounded-[14px] border border-border bg-surface-alt/60 p-4 shadow-soft"
                   >
                     <div className="mb-3 flex items-start justify-between gap-2">
-                      <div className="flex min-w-0 items-center gap-2">
+                      <div className="flex min-w-0 items-start gap-2">
                         <CategoryIcon category={d.category} />
-                        <span className="text-[12px] font-medium uppercase tracking-wide text-ink-muted">
-                          Item {i + 1}
-                        </span>
+                        <div className="min-w-0">
+                          <p className="text-[12px] font-medium uppercase tracking-wide text-ink-muted">
+                            {typeLabel(d.type)} · {d.category}
+                          </p>
+                          <h3 className="font-serif text-[20px] font-normal leading-tight text-ink">
+                            {d.title.trim() || "Untitled"}
+                          </h3>
+                        </div>
                       </div>
                       <button
                         type="button"

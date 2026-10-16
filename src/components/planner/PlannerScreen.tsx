@@ -1,7 +1,7 @@
 "use client";
 
 import { createClient } from "@lib/supabase";
-import { ChevronLeft, ChevronRight } from "lucide-react";
+import { ChevronLeft, ChevronRight, Trash2 } from "lucide-react";
 import dynamic from "next/dynamic";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
@@ -45,6 +45,8 @@ import { describeScheduleConflict, saveNextRepeats } from "@/lib/planner/next-re
 import { loadUserSettings } from "@/lib/settings/user-settings";
 import type { ProtectedWindow } from "@/lib/planner/protected-time";
 import { loadProtectedTimes } from "@/lib/settings/protected-times";
+import { settleOneOffArchive } from "@/lib/inventory/one-off-archive";
+import { weekItemsToClear } from "@/lib/planner/clear-week";
 import { patchesForFutureTasks, syncFutureTasks } from "@/lib/inventory/future-tasks";
 
 const PlannerTaskEditSheetLazy = dynamic(
@@ -166,8 +168,18 @@ export function PlannerScreen() {
           !tasksRes.error && tasksRes.data
             ? tasksRes.data.map((r) => mapPlannedTaskRow(r as Parameters<typeof mapPlannedTaskRow>[0]))
             : [];
-        if (!itemsRes.error && itemsRes.data) setItems(mappedItems);
-        if (!tasksRes.error && tasksRes.data) setPlannedTasks(mappedTasks);
+        let visibleItems = mappedItems;
+        let visibleTasks = mappedTasks;
+        if (!itemsRes.error && itemsRes.data) {
+          const settled = await settleOneOffArchive(supabase, mappedItems, todayISO);
+          if (cancelled) return;
+          visibleItems = settled.items;
+          const kept = new Set(visibleItems.map((item) => item.id));
+          visibleTasks = mappedTasks.filter((task) => kept.has(task.item_id));
+          setItems(visibleItems);
+          if (settled.error) setToast({ id: createId(), message: settled.error });
+        }
+        if (!tasksRes.error && tasksRes.data) setPlannedTasks(visibleTasks);
         if (itemsRes.error) {
           setToast({ id: createId(), message: itemsRes.error.message });
         }
@@ -187,8 +199,8 @@ export function PlannerScreen() {
         if (settings.autoScheduleNext && !itemsRes.error && !tasksRes.error) {
           const filled = await saveNextRepeats(
             supabase,
-            mappedItems,
-            mappedTasks,
+            visibleItems,
+            visibleTasks,
             todayISO,
             new Date(),
             settings.dayStartMinutes,
@@ -221,6 +233,7 @@ export function PlannerScreen() {
     };
   }, [supabase, todayISO]);
 
+  const [clearWeekOpen, setClearWeekOpen] = useState(false);
   const [taskActionsOpen, setTaskActionsOpen] = useState(false);
   const [activeTaskId, setActiveTaskId] = useState<string | null>(null);
   const [plannerTaskEditOpen, setPlannerTaskEditOpen] = useState(false);
@@ -985,6 +998,51 @@ export function PlannerScreen() {
     );
   }
 
+  async function confirmClearWeek() {
+    const plan = weekItemsToClear(items, plannedTasks, timelineWeekISOs);
+    if (plan.deleteItemIds.length === 0 && plan.deleteTaskIds.length === 0) {
+      setClearWeekOpen(false);
+      setToast({ id: createId(), message: "This week is already clear." });
+      return;
+    }
+    if (plan.deleteItemIds.length > 0) {
+      const { error } = await supabase.from("items").delete().in("id", plan.deleteItemIds);
+      if (error) {
+        setToast({ id: createId(), message: error.message });
+        return;
+      }
+    }
+    if (plan.deleteTaskIds.length > 0) {
+      const { error } = await supabase.from("planned_tasks").delete().in("id", plan.deleteTaskIds);
+      if (error) {
+        setToast({ id: createId(), message: error.message });
+        return;
+      }
+    }
+    const nowISO = new Date().toISOString();
+    for (const row of plan.defer) {
+      const { error } = await supabase
+        .from("items")
+        .update({ next_due_date: row.next_due_date, updated_at: nowISO })
+        .eq("id", row.id);
+      if (error) {
+        setToast({ id: createId(), message: error.message });
+        return;
+      }
+    }
+    const goneItems = new Set(plan.deleteItemIds);
+    const goneTasks = new Set(plan.deleteTaskIds);
+    const deferred = new Map(plan.defer.map((row) => [row.id, row.next_due_date]));
+    setItems((prev) =>
+      prev
+        .filter((item) => !goneItems.has(item.id))
+        .map((item) => (deferred.has(item.id) ? { ...item, next_due_date: deferred.get(item.id) ?? item.next_due_date } : item)),
+    );
+    setPlannedTasks((prev) => prev.filter((task) => !goneTasks.has(task.id) && !goneItems.has(task.item_id)));
+    setClearWeekOpen(false);
+    setToast({ id: createId(), message: "Cleared this week." });
+  }
+
   async function deletePlannedTask(taskId: string) {
     const task = plannedTasks.find((row) => row.id === taskId);
     if (!task) return;
@@ -1315,6 +1373,14 @@ export function PlannerScreen() {
                 />
                 <button
                   type="button"
+                  onClick={() => setClearWeekOpen(true)}
+                  className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg text-[rgba(15,57,76,0.6)] transition-opacity hover:opacity-80 active:opacity-60"
+                  aria-label="Clear this week"
+                >
+                  <Trash2 className="h-4 w-4" strokeWidth={2} aria-hidden />
+                </button>
+                <button
+                  type="button"
                   onClick={() => shiftWeekTimeline(1)}
                   className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg text-[rgba(15,57,76,0.6)] transition-opacity hover:opacity-80 active:opacity-60"
                   aria-label="Next 7 days"
@@ -1503,6 +1569,15 @@ export function PlannerScreen() {
         items={items}
         onAdd={(input) => void handleAddPlannedTask(input)}
         onQuickAdd={(payload) => void handleQuickAddPlannedTask(payload)}
+      />
+
+      <ConfirmSheet
+        open={clearWeekOpen}
+        title="Clear this week?"
+        body="Removes one-offs and recurring events. Routines stay."
+        confirmLabel="Clear this week"
+        onConfirm={() => void confirmClearWeek()}
+        onCancel={() => setClearWeekOpen(false)}
       />
 
       <ConfirmSheet
