@@ -27,7 +27,7 @@ function splitSpoken(text: string): string[] {
 }
 
 function shortTitle(clause: string): string {
-  let title = clause
+  const title = clause
     .replace(/^\s*(?:please\s+)?(?:i(?:'d| would)?\s+(?:like|want)\s+to\s+)?(?:add|create|make|schedule)\s+(?:a|an|the)?\s*/i, "")
     .replace(/^(?:a\s+)?(?:routine|recurring(?:\s+(?:event|task))?|one-?off|event|task|habit)\s+(?:which|that)\s+is\s+/i, "")
     .replace(/\b(?:every|each)\s+(?:other\s+)?(?:day|week|month|weekday|weekend|monday|tuesday|wednesday|thursday|friday|saturday|sunday)\b/gi, " ")
